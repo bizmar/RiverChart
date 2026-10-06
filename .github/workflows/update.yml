@@ -11,10 +11,6 @@ on:
         type: choice
         options: [missing, recent, full]
         default: missing
-      budget:
-        description: "Minutes to spend on daily-archive downloads (the first runs need several rounds to fetch every station's history)"
-        type: string
-        default: "50"
       debug:
         description: Print samples of the raw ARSO responses
         type: boolean
@@ -34,7 +30,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -56,21 +52,20 @@ jobs:
         run: |
           archive="${{ inputs.archive || 'missing' }}"
           if [ "${{ github.event.schedule }}" = "17 3 * * 1" ]; then archive=recent; fi
-          python3 scripts/update.py --store store --archive "$archive" --budget "${{ inputs.budget || '50' }}" ${{ inputs.debug && '--debug' || '' }}
+          python3 scripts/update.py --store store --archive "$archive" ${{ inputs.debug && '--debug' || '' }}
 
       # The data branch is rewritten as a single commit each time, so the repository
       # does not grow with every update. The files themselves keep the full history.
-      # The clone's old commit stays in place while we build the new one, so git only
-      # uploads the files that actually changed.
       - name: Save data
         if: steps.fetch.outcome == 'success'
         run: |
           cd store
-          if [ -d .git ]; then git checkout --quiet --orphan snapshot; else git init --quiet --initial-branch snapshot; fi
+          rm -rf .git
+          git init --quiet --initial-branch data
           git add -A
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit --quiet -m "Data as of $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push --quiet --force "$REPO_URL" snapshot:refs/heads/data
+          git push --quiet --force "$REPO_URL" data
 
       - name: Assemble site
         run: |

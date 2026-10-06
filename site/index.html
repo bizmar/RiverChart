@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RiverChart · River levels in Slovenia</title>
-  <meta name="description" content="Live and historic water level, flow and temperature of Slovenian rivers, with a search for the gauge nearest to you. Data: ARSO.">
+  <title>RiverChart · Ljubljanica &amp; Sava at Zalog</title>
+  <meta name="description" content="Live and historic water level, flow and temperature of the Ljubljanica and Sava around Zalog, Ljubljana. Data: ARSO.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <script>
     // Apply a saved light/dark choice before the page draws, so there is no flash.
@@ -20,38 +20,17 @@
       <img src="favicon.svg" alt="" width="32" height="32">
       <div>
         <h1>RiverChart</h1>
-        <p class="tagline">River levels across Slovenia · ARSO data</p>
+        <p class="tagline">River levels where the Ljubljanica meets the Sava · Zalog</p>
       </div>
     </div>
-
-    <form class="search" id="search" role="search" autocomplete="off">
-      <div class="search-box">
-        <svg class="mag" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
-        <input id="q" type="search" placeholder="Search a place or river" aria-label="Search a place or river to find the nearest gauge" role="combobox" aria-expanded="false" aria-controls="results" aria-autocomplete="list" enterkeyhint="search" spellcheck="false" autocapitalize="off" autocorrect="off">
-        <button type="button" class="icon-button flat" id="locate" aria-label="Use my location" title="Find the gauge nearest to my location">
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/></svg>
-          <span class="label">Near me</span>
-        </button>
-        <button type="button" class="icon-button flat mobile-only" id="search-close" aria-label="Close search" title="Close">
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>
-        </button>
-      </div>
-      <ul class="results" id="results" role="listbox" aria-label="Search results" hidden></ul>
-      <p class="search-msg" id="search-msg" role="status"></p>
-    </form>
-
     <div class="top-right">
       <p class="updated" id="updated"></p>
-      <button type="button" class="icon-button mobile-only" id="search-toggle" aria-label="Search for a place" aria-expanded="false" title="Search">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
-      </button>
       <button type="button" class="icon-button" id="theme"></button>
     </div>
   </header>
 
   <main>
     <nav class="stations" id="stations" aria-label="Station"></nav>
-    <p class="far-note" id="far-note" hidden></p>
 
     <section class="hero" aria-live="polite">
       <div class="hero-main">
@@ -80,14 +59,14 @@
     </section>
 
     <section class="nearby">
-      <h2 id="nearby-title">Stations nearby</h2>
-      <p class="section-note" id="nearby-note">The closest ARSO gauges, nearest first. Tap one to chart it.</p>
+      <h2>Stations nearby</h2>
+      <p class="section-note">Every ARSO automatic gauge, nearest to Zalog first. Highlighted stations have their full history recorded here.</p>
       <div class="nearby-grid" id="nearby"></div>
     </section>
   </main>
 
   <footer>
-    <p>Data: <a href="https://www.arso.gov.si/vode/podatki/">Agencija RS za okolje (ARSO)</a>. Recent values are automatic, unvalidated measurements. Older history is ARSO's validated daily archive. Place search: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>, only used when you search for a place.</p>
+    <p>Data: <a href="https://www.arso.gov.si/vode/podatki/">Agencija RS za okolje (ARSO)</a>. Recent values are automatic, unvalidated measurements. Older history is ARSO's validated daily archive.</p>
     <p><a href="https://github.com/bizmar/RiverChart">Source on GitHub</a> · No ads, no cookies, no tracking.</p>
   </footer>
 

@@ -22,7 +22,6 @@ const state = {
   stations: [],
   byId: {},
   station: null,
-  origin: null, // where the visitor is looking from: { lat, lon, label }
   metric: "level",
   range: "7d",
   cache: {},
@@ -527,33 +526,19 @@ function renderControls() {
 function renderStationChips() {
   const nav = $("stations");
   nav.replaceChildren();
-
-  // First chip: the place the stations are measured from. Tapping it opens the search.
-  const pin = el("button", "chip origin");
-  pin.type = "button";
-  pin.setAttribute("aria-label", `Showing gauges near ${state.origin.label}. Change place.`);
-  pin.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/></svg>';
-  pin.append(el("span", "river", state.origin.label));
-  pin.onclick = openSearch;
-  nav.append(pin);
-
-  // The nearest gauges; the selected one is always shown, even if it is further away.
-  const near = state.stations.filter((s) => s.tracked && s.dist_km != null).slice(0, 8);
-  const sel = state.byId[state.station];
-  const list = !sel || near.some((s) => s.id === sel.id) ? near : [sel, ...near.slice(0, 7)];
-  for (const st of list) {
+  for (const st of state.stations.filter((s) => s.tracked)) {
     const b = el("button", "chip");
     b.type = "button";
     b.setAttribute("aria-pressed", String(st.id === state.station));
     const meta = el("span", "meta", st.place);
-    if (st.dist_km != null) meta.append(el("span", "dist", ` · ${distLabel(st)}`));
+    meta.append(el("span", "dist", ` · ${distLabel(st)}`));
     b.append(el("span", "river", st.river), meta);
     b.onclick = () => selectStation(st.id);
     nav.append(b);
   }
 }
 
-const distLabel = (st) => (st.dist_km == null ? "" : st.dist_km < 0.1 ? "here" : st.dist_km < 1 ? `${Math.round(st.dist_km * 1000)} m away` : `${st.dist_km.toFixed(1)} km away`);
+const distLabel = (st) => (st.dist_km == null ? "" : st.dist_km < 1 ? `${Math.round(st.dist_km * 1000)} m away` : `${st.dist_km.toFixed(1)} km away`);
 
 function renderHero() {
   const st = state.byId[state.station];
@@ -618,8 +603,7 @@ function wrapStat(label, dd) {
 function renderNearby() {
   const grid = $("nearby");
   grid.replaceChildren();
-  $("nearby-title").textContent = `Stations near ${state.origin.label}`;
-  const near = state.stations.filter((s) => s.dist_km != null).slice(0, 12);
+  const near = state.stations.filter((s) => s.dist_km != null && s.dist_km <= 30).slice(0, 12);
   for (const st of near) {
     const card = el(st.tracked ? "button" : "div", "station-card" + (st.tracked ? " tracked" : ""));
     if (st.tracked) {
@@ -627,7 +611,7 @@ function renderNearby() {
       card.onclick = () => { selectStation(st.id); window.scrollTo({ top: 0, behavior: "smooth" }); };
     }
     const meta = el("div", "meta", distLabel(st));
-    meta.append(el("span", "extra", ` · station ${st.id}`));
+    meta.append(el("span", "extra", ` · station ${st.id}${st.tracked ? " · history recorded" : ""}`));
     card.append(el("div", "name", `${st.river} · ${st.place}`), meta);
     const vals = el("div", "vals");
     for (const [id, m] of Object.entries(METRICS)) {
@@ -715,292 +699,14 @@ async function init() {
   }
   state.stations = catalogue.stations;
   state.byId = Object.fromEntries(catalogue.stations.map((s) => [s.id, s]));
-  state.home = catalogue.home;
-  state.defaultStation = state.byId[catalogue.default]?.tracked ? catalogue.default : catalogue.stations.find((s) => s.tracked)?.id;
-  // A saved place wins over the default (Zalog); the mobile search row stays open only until a place was set or dismissed.
-  const saved = loadOrigin();
-  state.origin = saved ?? { ...catalogue.home, label: catalogue.home.name };
-  rankStations();
-  state.station = (saved && nearestStation()?.id) || state.defaultStation;
-  if (prefs.get(PLACE_KEY) == null) document.body.classList.add("search-open");
+  state.station = state.byId[catalogue.default]?.tracked ? catalogue.default : catalogue.stations.find((s) => s.tracked)?.id;
   readHash();
   const gen = Date.parse(catalogue.generated);
   $("updated").textContent = `Data refreshed ${ago(gen)}`;
   $("updated").append(el("span", "extra", " · every 30 min"));
   $("updated").title = dateFmt.format(gen) + " " + timeFmt.format(gen);
   renderNearby();
-  renderFarNote();
   if (state.station) await update();
-}
-
-// ---------------------------------------------------------------- search & location
-
-// The chosen place is kept on this device only, rounded to about 1 km. Nothing is sent anywhere
-// except a place-name search (see searchPlaces), which asks OpenStreetMap's Nominatim.
-const PLACE_KEY = "rc-place";
-const NOMINATIM = "https://nominatim.openstreetmap.org/search";
-const FAR_KM = 40;
-
-const norm = (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
-
-function distKm(lat1, lon1, lat2, lon2) {
-  const r = Math.PI / 180, dp = (lat2 - lat1) * r, dl = (lon2 - lon1) * r;
-  const a = Math.sin(dp / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dl / 2) ** 2;
-  return 12742 * Math.asin(Math.sqrt(a));
-}
-
-// Distances from the current origin, nearest first.
-function rankStations() {
-  const o = state.origin;
-  for (const st of state.stations) st.dist_km = st.lat == null || st.lon == null ? null : distKm(o.lat, o.lon, st.lat, st.lon);
-  const d = (st) => st.dist_km ?? 1e9;
-  state.stations.sort((a, b) => d(a) - d(b));
-}
-
-// The closest gauge that can be charted, preferring one that is reporting right now.
-function nearestStation() {
-  const ok = state.stations.filter((s) => s.tracked && s.dist_km != null);
-  return ok.find((s) => s.level != null || s.flow != null || s.temp != null) ?? ok[0] ?? null;
-}
-
-function loadOrigin() {
-  try {
-    const o = JSON.parse(prefs.get(PLACE_KEY));
-    if (o && Number.isFinite(o.lat) && Number.isFinite(o.lon) && typeof o.label === "string") return o;
-  } catch { /* nothing saved, or "none" */ }
-  return null;
-}
-
-function openSearch() {
-  document.body.classList.add("search-open");
-  $("search-toggle").setAttribute("aria-expanded", "true");
-  $("q").focus();
-  showResults();
-}
-function closeSearch({ remember = false } = {}) {
-  document.body.classList.remove("search-open");
-  $("search-toggle").setAttribute("aria-expanded", "false");
-  hideResults();
-  say("");
-  if (remember && !prefs.get(PLACE_KEY)) prefs.set(PLACE_KEY, "none"); // dismissed: don't open itself next time
-}
-
-function say(text) { $("search-msg").textContent = text; }
-
-// --- results list (a combobox: arrow keys to move, Enter to choose)
-let options = [], active = -1, placeAbort = null;
-
-function hideResults() {
-  $("results").hidden = true;
-  $("q").setAttribute("aria-expanded", "false");
-  $("q").removeAttribute("aria-activedescendant");
-  active = -1;
-}
-
-function paintResults() {
-  const ul = $("results");
-  ul.replaceChildren();
-  options.forEach((o, i) => {
-    if (o.heading) {
-      const h = el("li", "opt-heading", o.heading);
-      h.setAttribute("role", "presentation");
-      ul.append(h);
-      return;
-    }
-    const li = el("li", "opt" + (o.action ? " action" : ""));
-    li.id = `opt-${i}`;
-    li.setAttribute("role", "option");
-    li.setAttribute("aria-selected", String(i === active));
-    li.append(el("span", "opt-title", o.title));
-    if (o.sub) li.append(el("span", "opt-sub", o.sub));
-    li.onpointerdown = (e) => e.preventDefault(); // keep focus in the input
-    li.onclick = () => o.run();
-    ul.append(li);
-  });
-  const open = options.length > 0;
-  ul.hidden = !open;
-  $("q").setAttribute("aria-expanded", String(open));
-  if (active >= 0) $("q").setAttribute("aria-activedescendant", `opt-${active}`);
-  else $("q").removeAttribute("aria-activedescendant");
-}
-
-const choosable = () => options.map((o, i) => (o.heading ? -1 : i)).filter((i) => i >= 0);
-
-function stationMatches(q) {
-  const words = norm(q).split(/\s+/).filter(Boolean);
-  if (!words.length) return [];
-  const score = (st) => {
-    const hay = norm(`${st.river} ${st.place} ${st.id}`);
-    if (!words.every((w) => hay.includes(w))) return -1;
-    const place = norm(st.place);
-    return (place.startsWith(words[0]) ? 2 : 0) + (st.tracked ? 1 : 0);
-  };
-  return state.stations
-    .map((st) => [st, score(st)])
-    .filter(([, sc]) => sc >= 0)
-    .sort((a, b) => b[1] - a[1] || (a[0].dist_km ?? 1e9) - (b[0].dist_km ?? 1e9))
-    .map(([st]) => st)
-    .slice(0, 6);
-}
-
-function showResults() {
-  const q = $("q").value.trim();
-  options = [];
-  if (!q) {
-    options.push({ title: "Use my location", sub: "Finds the gauge nearest to you. Your position stays on this device.", action: true, run: locate });
-    if (state.home && loadOrigin()) options.push({ title: `Reset to ${state.home.name}`, sub: "Forget the saved place", action: true, run: resetPlace });
-  } else {
-    const hits = stationMatches(q);
-    if (hits.length) {
-      options.push({ heading: "Gauges" });
-      for (const st of hits) {
-        options.push({
-          title: `${st.river} · ${st.place}`,
-          sub: `${distLabel(st)}${st.tracked ? "" : " · no data"}`,
-          run: () => chooseStation(st),
-        });
-      }
-    }
-    options.push({ title: `Search places for “${q}”`, sub: "Looks the name up on OpenStreetMap", action: true, run: () => searchPlaces(q) });
-  }
-  active = -1;
-  paintResults();
-}
-
-async function searchPlaces(q) {
-  placeAbort?.abort();
-  const ctl = (placeAbort = new AbortController());
-  say("Searching…");
-  hideResults();
-  try {
-    const url = `${NOMINATIM}?${new URLSearchParams({ q, format: "jsonv2", countrycodes: "si", limit: "5", "accept-language": "sl,en" })}`;
-    const r = await fetch(url, { signal: ctl.signal });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const found = (await r.json()).filter((p) => Number.isFinite(parseFloat(p.lat)) && Number.isFinite(parseFloat(p.lon)));
-    if (ctl.signal.aborted) return;
-    if (!found.length) {
-      say("No place found in Slovenia. Try another spelling, or a river or station name.");
-      return;
-    }
-    say("");
-    options = found.map((p) => {
-      const parts = String(p.display_name).split(",").map((x) => x.trim());
-      const label = p.name || parts[0];
-      return {
-        title: label,
-        sub: parts.slice(1, 3).join(", "),
-        run: () => setOrigin({ lat: parseFloat(p.lat), lon: parseFloat(p.lon), label }),
-      };
-    });
-    active = 0;
-    paintResults();
-  } catch (err) {
-    if (err.name !== "AbortError") say("Couldn't reach the place search. You can still search by river or station name, or use your location.");
-  }
-}
-
-function locate() {
-  if (!navigator.geolocation) {
-    say("This browser can't share its location. Search for a place instead.");
-    return;
-  }
-  hideResults();
-  say("Finding your location…");
-  const btn = $("locate");
-  btn.disabled = true;
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      btn.disabled = false;
-      const round = (v) => Math.round(v * 100) / 100; // about 1 km: plenty to find a gauge, and less to store
-      setOrigin({ lat: round(pos.coords.latitude), lon: round(pos.coords.longitude), label: "My location" });
-    },
-    (err) => {
-      btn.disabled = false;
-      say(err.code === 1
-        ? "Location access is blocked. Allow it in your browser's site settings, or search for a place."
-        : "Couldn't work out your location. Search for a place instead.");
-    },
-    { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 },
-  );
-}
-
-// Make `o` the place to look from and show its nearest gauge (or `stationId`, if given).
-async function setOrigin(o, { stationId, remember = true } = {}) {
-  state.origin = o;
-  if (remember) prefs.set(PLACE_KEY, JSON.stringify(o));
-  rankStations();
-  const near = stationId ? state.byId[stationId] : nearestStation();
-  if (near) state.station = near.id;
-  $("q").value = "";
-  closeSearch();
-  renderNearby();
-  renderFarNote();
-  await update();
-}
-
-function chooseStation(st) {
-  if (!st.tracked) { say("ARSO has no data for this station right now."); return; }
-  if (st.lat == null || st.lon == null) {
-    $("q").value = "";
-    closeSearch();
-    return selectStation(st.id);
-  }
-  // Look from the gauge itself, so "nearby" lists what is around it.
-  return setOrigin({ lat: st.lat, lon: st.lon, label: st.place }, { stationId: st.id });
-}
-
-function resetPlace() {
-  try { localStorage.removeItem(PLACE_KEY); } catch { /* nothing to forget */ }
-  $("q").value = "";
-  state.origin = { ...state.home, label: state.home.name };
-  rankStations();
-  state.station = state.defaultStation;
-  closeSearch();
-  renderNearby();
-  renderFarNote();
-  return update();
-}
-
-// ARSO only covers Slovenia, so say so when the nearest gauge is a long way off.
-function renderFarNote() {
-  const near = nearestStation();
-  const note = $("far-note");
-  note.hidden = !(near && near.dist_km > FAR_KM);
-  if (!note.hidden) note.textContent = `The nearest ARSO gauge to ${state.origin.label} is ${Math.round(near.dist_km)} km away. ARSO only measures rivers in Slovenia.`;
-}
-
-function setupSearch() {
-  const q = $("q");
-  q.addEventListener("input", showResults);
-  q.addEventListener("focus", showResults);
-  q.addEventListener("keydown", (e) => {
-    const list = choosable();
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      if (!list.length) return;
-      e.preventDefault();
-      const step = e.key === "ArrowDown" ? 1 : -1;
-      const at = list.indexOf(active);
-      active = at < 0 ? list[step > 0 ? 0 : list.length - 1] : list[(at + step + list.length) % list.length];
-      paintResults();
-      $(`opt-${active}`)?.scrollIntoView({ block: "nearest" });
-    } else if (e.key === "Escape" && !$("results").hidden) {
-      e.preventDefault(); // browsers would also clear the field (and reopen the list); first Escape only closes it
-      hideResults();
-    }
-  });
-  $("search").addEventListener("submit", (e) => {
-    e.preventDefault();
-    if (active >= 0) options[active].run();
-    else if (q.value.trim()) {
-      // Enter with nothing highlighted: the first gauge match, otherwise look the place up.
-      const first = options.find((o) => !o.heading && !o.action);
-      (first ?? options.find((o) => o.action))?.run();
-    }
-  });
-  document.addEventListener("pointerdown", (e) => { if (!$("search").contains(e.target)) hideResults(); });
-  $("locate").onclick = locate;
-  $("search-close").onclick = () => closeSearch({ remember: true });
-  $("search-toggle").onclick = () => (document.body.classList.contains("search-open") ? closeSearch({ remember: true }) : openSearch());
 }
 
 // ---------------------------------------------------------------- theme preference
@@ -1035,6 +741,5 @@ function setupPrefs() {
 }
 
 setupPrefs();
-setupSearch();
 if (window.echarts) init();
 else window.addEventListener("load", () => (window.echarts ? init() : showError("The chart library failed to load.")));
