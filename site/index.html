@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RiverChart · Ljubljanica &amp; Sava at Zalog</title>
+  <meta name="description" content="Live and historic water level, flow and temperature of the Ljubljanica and Sava around Zalog, Ljubljana. Data: ARSO.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="favicon.svg" alt="" width="32" height="32">
+      <div>
+        <h1>RiverChart</h1>
+        <p class="tagline">River levels where the Ljubljanica meets the Sava · Zalog</p>
+      </div>
+    </div>
+    <p class="updated" id="updated"></p>
+  </header>
+
+  <main>
+    <nav class="stations" id="stations" aria-label="Station"></nav>
+
+    <section class="hero" aria-live="polite">
+      <div class="hero-main">
+        <p class="hero-label" id="hero-label">Water level</p>
+        <p class="hero-value"><span id="hero-value">–</span><span class="hero-unit" id="hero-unit"></span></p>
+        <p class="hero-trend" id="hero-trend"></p>
+      </div>
+      <dl class="hero-stats" id="hero-stats"></dl>
+      <p class="status" id="status" hidden></p>
+    </section>
+
+    <section class="card chart-card">
+      <div class="controls">
+        <div class="segmented" id="metrics" role="radiogroup" aria-label="Measurement"></div>
+        <div class="segmented" id="ranges" role="radiogroup" aria-label="Time range"></div>
+      </div>
+      <div id="chart" class="chart" role="img" aria-label="Interactive chart of the selected measurement"></div>
+      <p class="hint">Scroll or pinch to zoom, drag to pan, or use the slider. Before live recording began, the line shows ARSO's validated daily means.</p>
+      <dl class="window-stats" id="window-stats"></dl>
+      <details class="table-view">
+        <summary>Data table</summary>
+        <p class="table-note" id="table-note"></p>
+        <button type="button" id="download" class="link-button">Download visible range as CSV</button>
+        <div class="table-scroll"><table id="table"><thead></thead><tbody></tbody></table></div>
+      </details>
+    </section>
+
+    <section class="nearby">
+      <h2>Stations nearby</h2>
+      <p class="section-note">Every ARSO automatic gauge, nearest to Zalog first. Highlighted stations have their full history recorded here.</p>
+      <div class="nearby-grid" id="nearby"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Data: <a href="https://www.arso.gov.si/vode/podatki/">Agencija RS za okolje (ARSO)</a>. Recent values are automatic, unvalidated measurements. Older history is ARSO's validated daily archive.</p>
+    <p><a href="https://github.com/bizmar/RiverChart">Source on GitHub</a></p>
+  </footer>
+</body>
+</html>

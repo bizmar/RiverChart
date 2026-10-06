@@ -1,0 +1,87 @@
+name: Update data and publish
+
+on:
+  schedule:
+    - cron: "4,34 * * * *"   # every 30 min, a few minutes after ARSO publishes
+    - cron: "17 3 * * 1"     # Mondays: re-check the archive for newly validated years
+  workflow_dispatch:
+    inputs:
+      archive:
+        description: "Daily archive: missing = new stations only, recent = last 3 years, full = everything"
+        type: choice
+        options: [missing, recent, full]
+        default: missing
+      debug:
+        description: Print samples of the raw ARSO responses
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tests
+        run: python3 -m unittest discover tests
+
+      - name: Get stored data (data branch)
+        run: git clone --quiet --depth 1 --branch data "$REPO_URL" store || mkdir -p store
+
+      - name: Fetch from ARSO
+        id: fetch
+        continue-on-error: true
+        run: |
+          archive="${{ inputs.archive || 'missing' }}"
+          if [ "${{ github.event.schedule }}" = "17 3 * * 1" ]; then archive=recent; fi
+          python3 scripts/update.py --store store --archive "$archive" ${{ inputs.debug && '--debug' || '' }}
+
+      # The data branch is rewritten as a single commit each time, so the repository
+      # does not grow with every update. The files themselves keep the full history.
+      - name: Save data
+        if: steps.fetch.outcome == 'success'
+        run: |
+          cd store
+          rm -rf .git
+          git init --quiet --initial-branch data
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit --quiet -m "Data as of $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push --quiet --force "$REPO_URL" data
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/data
+          cp -r site/. _site/
+          rsync -a --exclude .git store/ _site/data/
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      - name: Report fetch failure
+        if: steps.fetch.outcome == 'failure'
+        run: |
+          echo "::error::Fetching from ARSO failed - the site was published with the previous data."
+          exit 1
