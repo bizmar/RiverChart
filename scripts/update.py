@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Fetch the latest ARSO river data for stations around Zalog and add it to the data store.
+"""Fetch the latest ARSO river data for every automatic station and add it to the data store.
 
 The store is a plain folder of CSV/JSON files that the dashboard reads directly:
 
-    stations.json              every ARSO station with its latest reading, sorted by distance
-    <id>/meta.json             what is stored for a tracked station
+    stations.json              every ARSO station with its latest reading, nearest to home first
+    <id>/meta.json             what is stored for a station
     <id>/daily.csv             one row per day (validated archive + daily means of live data)
-    <id>/live/<YYYY-MM>.csv    measured readings (10-60 min apart), times in UTC
+    <id>/live/<YYYY-MM>.csv    measured readings, times in UTC (10 min apart for the last
+                               week, one per hour before that)
 
 Run regularly (GitHub Actions does it every 30 minutes):
 
     python scripts/update.py --store store
 
-New stations are back-filled automatically (30-day table + full daily archive).
+New stations get their live data straight away. The long daily archive is fetched station by
+station, nearest to home first, until --budget minutes are used up; the next run carries on.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import math
 import sys
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -31,11 +34,12 @@ import arso
 
 # Zalog, Ljubljana - where the Ljubljanica flows into the Sava.
 HOME = {"name": "Zalog", "lat": 46.0700, "lon": 14.6150}
-# Stations within this distance get their full history stored.
-RADIUS_KM = 10
-# Always tracked, whatever the radius: Ljubljanica at Moste I, the last gauge before Zalog.
-ALWAYS_TRACK = {"5078"}
+# Shown when a visitor has not chosen a place: Ljubljanica at Moste I, the last gauge before Zalog.
 DEFAULT_STATION = "5078"
+# Stations are processed this many at a time (ARSO is a public server, so keep it small).
+WORKERS = 3
+# Live readings older than this keep one reading per hour; the newest week stays at full resolution.
+THIN_AFTER_DAYS = 7
 
 DIGITS = {"level": 1, "flow": 3, "temp": 1}
 
@@ -136,7 +140,36 @@ class StationStore:
 
     def live_months(self) -> list[str]:
         d = self.dir / "live"
-        return sorted(p.stem for p in d.glob("*.csv")) if d.exists() else []
+        on_disk = {p.stem for p in d.glob("*.csv")} if d.exists() else set()
+        return sorted(on_disk | {m for m, rows in self._months.items() if rows})
+
+    def thin(self, now: datetime, keep_days: int = THIN_AFTER_DAYS) -> None:
+        """Keep one reading per hour for live data older than keep_days, so the store stays small."""
+        cutoff = iso(now - timedelta(days=keep_days))
+        # Anything older than two months was thinned by an earlier run.
+        first_month = iso(now - timedelta(days=60))[:7]
+        for month_key in self.live_months():
+            if month_key < first_month:
+                continue
+            rows = self.month(month_key)
+            by_hour: dict[str, list[str]] = defaultdict(list)
+            for key in rows:
+                if key < cutoff:
+                    by_hour[key[:13]].append(key)
+            for keys in by_hour.values():
+                if len(keys) > 1:
+                    keep = min(keys, key=lambda k: k[14:16])  # the reading nearest the full hour
+                    for k in keys:
+                        if k != keep:
+                            del rows[k]
+                            self.touched_months.add(month_key)
+
+    def has_data(self) -> bool:
+        return bool(self.daily()) or bool(self.live_months())
+
+    def meta(self) -> dict:
+        path = self.dir / "meta.json"
+        return json.loads(path.read_text()) if path.exists() else {}
 
     # daily ----------------------------------------------------------------
     def daily(self) -> dict[str, dict[str, str]]:
@@ -170,7 +203,7 @@ class StationStore:
                 daily[key] = {"date": key, "src": "m", **{f: fmt(sums[f] / counts[f], f) for f in counts}}
 
     # save -----------------------------------------------------------------
-    def save(self, station: dict) -> None:
+    def save(self, station: dict, archive_done: bool) -> None:
         for key in self.touched_months:
             write_table(self.dir / "live" / f"{key}.csv", LIVE_COLUMNS, self._months[key])
         if hasattr(self, "_daily"):
@@ -185,6 +218,7 @@ class StationStore:
             "daily_from": daily[0] if daily else None,
             "daily_to": daily[-1] if daily else None,
             "archive_to": max(archive_days) if archive_days else None,
+            "archive_done": archive_done,
             "updated": iso(datetime.now(timezone.utc)),
         })
 
@@ -218,14 +252,59 @@ def backfill_archive(store: StationStore, station: dict, years: int | None, log)
         time.sleep(0.5)
 
 
+def process_station(st: dict, args, deadline: float) -> tuple[bool, int, list[str]]:
+    """Update one station. Returns (has_data, table_failures, log_lines)."""
+    lines: list[str] = []
+    out = lines.append
+    out(f"{st['id']} {st['river']} - {st['place']} ({st['dist_km']} km)")
+    store = StationStore(args.store, st["id"])
+    meta = store.meta()
+    archive_done = bool(meta.get("archive_done") or meta.get("archive_to"))
+    failures = 0
+    try:
+        readings = []
+        if st["time"] and st["values"]:
+            readings.append((st["time"], st["values"]))
+        # The 1-day table covers a normal run; after a gap (or for a new station) take 30 days.
+        last = store.last_reading()
+        days = 1 if last and datetime.now(timezone.utc) - last < timedelta(hours=20) else 30
+        try:
+            table = arso.fetch_station_table(st["id"], days)
+            if args.debug and table:
+                out(f"    table sample: {table[0]} ... {table[-1]}")
+            readings += table
+            out(f"    {days}-day table: {len(table)} readings")
+        except Exception as e:  # noqa: BLE001
+            failures += 1
+            out(f"    {days}-day table failed: {e}")
+        out(f"    {store.add_live(readings)} new/changed readings")
+
+        if not archive_done or args.archive != "missing":
+            if time.monotonic() < deadline:
+                backfill_archive(store, st, {"missing": None, "full": None, "recent": 3}[args.archive], out)
+                archive_done = True
+            else:
+                out("    daily archive: time budget used up, continues next run")
+        store.recompute_daily_means()
+        store.thin(datetime.now(timezone.utc))
+        store.save(st, archive_done)
+    except Exception as e:  # noqa: BLE001 - one broken station must not stop the rest
+        failures += 1
+        out(f"    FAILED: {type(e).__name__}: {e}")
+    return store.has_data(), failures, lines
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--store", type=Path, default=Path("store"), help="data folder (default: ./store)")
     ap.add_argument("--archive", choices=["missing", "recent", "full"], default="missing",
-                    help="daily archive: only for new stations (default), re-check last 3 years, or everything")
+                    help="daily archive: only where missing (default), re-check last 3 years, or everything")
+    ap.add_argument("--budget", type=float, default=50, metavar="MIN",
+                    help="stop starting new daily-archive downloads after this many minutes (default 50)")
     ap.add_argument("--debug", action="store_true", help="print samples of the raw ARSO responses")
     args = ap.parse_args()
     log = lambda *a: print(*a, flush=True)  # noqa: E731
+    deadline = time.monotonic() + args.budget * 60
 
     raw = arso.fetch(arso.XML_URL)
     if args.debug:
@@ -241,42 +320,21 @@ def main() -> int:
             round(distance_km(HOME["lat"], HOME["lon"], st["lat"], st["lon"]), 2)
             if st["lat"] is not None and st["lon"] is not None else None
         )
-        st["tracked"] = st["id"] in ALWAYS_TRACK or (st["dist_km"] is not None and st["dist_km"] <= RADIUS_KM)
+    # Nearest to home first, so the stations people look at most get their history first.
     stations.sort(key=lambda s: (s["dist_km"] is None, s["dist_km"] or 0))
 
     failures = 0
-    for st in (s for s in stations if s["tracked"]):
-        log(f"{st['id']} {st['river']} - {st['place']} ({st['dist_km']} km)")
-        store = StationStore(args.store, st["id"])
-        needs_archive = not (store.dir / "daily.csv").exists()
-
-        readings = []
-        if st["time"] and st["values"]:
-            readings.append((st["time"], st["values"]))
-        # The 1-day table covers a normal run; after a gap (or for a new station) take 30 days.
-        last = store.last_reading()
-        days = 1 if last and datetime.now(timezone.utc) - last < timedelta(hours=20) else 30
-        try:
-            table = arso.fetch_station_table(st["id"], days)
-            if args.debug and table:
-                log(f"    table sample: {table[0]} ... {table[-1]}")
-            readings += table
-            log(f"    {days}-day table: {len(table)} readings")
-        except Exception as e:  # noqa: BLE001
-            failures += 1
-            log(f"    {days}-day table failed: {e}")
-        log(f"    {store.add_live(readings)} new/changed readings")
-
-        if needs_archive or args.archive != "missing":
-            backfill_archive(store, st, {"missing": None, "full": None, "recent": 3}[args.archive], log)
-        store.recompute_daily_means()
-        store.save(st)
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        for st, (has_data, failed, lines) in zip(stations, pool.map(lambda s: process_station(s, args, deadline), stations)):
+            st["tracked"] = has_data
+            failures += failed
+            for line in lines:
+                log(line)
 
     write_json(args.store / "stations.json", {
         "generated": iso(datetime.now(timezone.utc)),
         "home": HOME,
         "default": DEFAULT_STATION,
-        "radius_km": RADIUS_KM,
         "stations": [
             {
                 "id": s["id"],
@@ -295,9 +353,9 @@ def main() -> int:
         ],
     })
     tracked = sum(s["tracked"] for s in stations)
-    log(f"Done: {tracked} tracked stations, {failures} table failures")
-    # Fail only if every station table failed (ARSO down or format changed).
-    return 1 if tracked and failures == tracked else 0
+    log(f"Done: {tracked} of {len(stations)} stations have data, {failures} failures")
+    # Fail only if every station failed (ARSO down or format changed); the site keeps the previous data.
+    return 1 if failures >= len(stations) else 0
 
 
 if __name__ == "__main__":

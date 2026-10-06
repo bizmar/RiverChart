@@ -15,11 +15,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 STATIONS = [
+    # id, river, place, lat, lon, dist from Zalog (km), tracked, level base, flow base, flow class
     ("3570", "Sava", "Šentjakob", 46.0789, 14.6131, 1.0, True, 95, 80, "srednji pretok"),
     ("5078", "Ljubljanica", "Moste I", 46.0569, 14.5583, 4.6, True, 150, 45, "srednji pretok"),
     ("4270", "Kamniška Bistrica", "Vir", 46.1530, 14.6010, 9.3, True, 60, 12, "mali pretok"),
-    ("3530", "Sava", "Medno", 46.1230, 14.4400, 14.8, False, 110, 90, "velik pretok"),
-    ("5040", "Ljubljanica", "Kamin", 45.9880, 14.4280, 17.0, False, 210, 40, "prvi visokovodni pretok"),
+    ("3530", "Sava", "Medno", 46.1230, 14.4400, 14.8, True, 110, 90, "velik pretok"),
+    ("5040", "Ljubljanica", "Kamin", 45.9880, 14.4280, 17.0, True, 210, 40, "prvi visokovodni pretok"),
+    ("4200", "Drava", "Maribor", 46.5598, 15.6358, 115, True, 130, 280, "srednji pretok"),
+    ("1060", "Mura", "Gornja Radgona", 46.6800, 15.9900, 140, True, 180, 150, "mali pretok"),
+    ("8060", "Soča", "Solkan", 45.9600, 13.6420, 80, True, 230, 110, "srednji pretok"),
+    ("5640", "Savinja", "Celje", 46.2330, 15.2680, 60, True, 90, 40, "mali pretok"),
+    ("9990", "Brez", "Brez podatkov", 46.3000, 14.2000, 40, False, 0, 0, ""),
 ]
 
 
@@ -44,7 +50,8 @@ def main(out: Path) -> None:
     for sid, river, place, lat, lon, dist, tracked, base, flow, cls in STATIONS:
         catalogue.append({"id": sid, "river": river, "place": place, "lat": lat, "lon": lon, "dist_km": dist,
                           "tracked": tracked, "time": now.strftime("%Y-%m-%dT%H:%MZ"),
-                          "level": base, "flow": flow, "temp": 12.4, "flow_class": cls})
+                          "level": base if tracked else None, "flow": flow if tracked else None,
+                          "temp": 12.4 if tracked else None, "flow_class": cls or None})
         if not tracked:
             continue
         d = out / sid
