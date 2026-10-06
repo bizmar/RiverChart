@@ -72,6 +72,10 @@ jobs:
           mkdir -p _site/data
           cp -r site/. _site/
           rsync -a --exclude .git store/ _site/data/
+          # Cache-busting: tag app.js and style.css with the commit, so a new page never runs with old cached code.
+          v="${GITHUB_SHA::7}"
+          sed -i -e "s#src=\"app.js\"#src=\"app.js?v=$v\"#" -e "s#href=\"style.css\"#href=\"style.css?v=$v\"#" _site/index.html
+          grep -q "app.js?v=$v" _site/index.html && grep -q "style.css?v=$v" _site/index.html
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
