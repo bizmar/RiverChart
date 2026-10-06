@@ -6,7 +6,7 @@ The store is a plain folder of CSV/JSON files that the dashboard reads directly:
     stations.json              every ARSO station with its latest reading, sorted by distance
     <id>/meta.json             what is stored for a tracked station
     <id>/daily.csv             one row per day (validated archive + daily means of live data)
-    <id>/live/<YYYY-MM>.csv    half-hourly readings, times in UTC
+    <id>/live/<YYYY-MM>.csv    measured readings (10-60 min apart), times in UTC
 
 Run regularly (GitHub Actions does it every 30 minutes):
 
@@ -127,6 +127,13 @@ class StationStore:
                 self.touched_days.add(t.astimezone(arso.LOCAL_TZ).date())
         return added
 
+    def last_reading(self) -> datetime | None:
+        months = self.live_months()
+        if not months:
+            return None
+        times = list(self.month(months[-1]))
+        return parse_iso(max(times)) if times else None
+
     def live_months(self) -> list[str]:
         d = self.dir / "live"
         return sorted(p.stem for p in d.glob("*.csv")) if d.exists() else []
@@ -246,7 +253,9 @@ def main() -> int:
         readings = []
         if st["time"] and st["values"]:
             readings.append((st["time"], st["values"]))
-        days = 1 if store.live_months() else 30
+        # The 1-day table covers a normal run; after a gap (or for a new station) take 30 days.
+        last = store.last_reading()
+        days = 1 if last and datetime.now(timezone.utc) - last < timedelta(hours=20) else 30
         try:
             table = arso.fetch_station_table(st["id"], days)
             if args.debug and table:

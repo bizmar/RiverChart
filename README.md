@@ -6,7 +6,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 
 - the current water level, flow and water temperature, with the change over the last 24 hours and ARSO's own status (normal / high / flood stage)
 - an **interactive chart**: zoom with the scroll wheel or a pinch, drag to pan, or jump to 2 days … 10 years … the whole record
-- **decades of history** from ARSO's validated daily archive, which flows straight on into half-hourly readings recorded since this project started
+- **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
 - a data table and a CSV download for whatever range you are looking at
 - every nearby ARSO gauge, sorted by distance from Zalog
 - light and dark mode, and a layout that works on a phone
@@ -17,8 +17,8 @@ ARSO has no gauge on the Ljubljanica at Zalog itself. The useful ones are:
 
 | Station | River | Distance from Zalog | Notes |
 |---|---|---|---|
-| **Šentjakob** | Sava | ~1 km | Right next to the confluence. A high Sava backs water up into the lower Ljubljanica, so this matters for Zalog too. |
-| **Moste I** (5078) | Ljubljanica | ~4.5 km | The last Ljubljanica gauge before Zalog. This is the station behind ARSO's `H5078` page. |
+| **Šentjakob** (3570) | Sava | ~3 km | Just upstream of the confluence. A high Sava backs water up into the lower Ljubljanica, so it matters for Zalog too. |
+| **Moste I** (5078) | Ljubljanica | ~5.7 km | The last Ljubljanica gauge before Zalog. This is the station behind ARSO's `H5078` page. |
 
 Every station within 10 km of Zalog (plus Moste I) is recorded automatically. The "Stations nearby" section on the dashboard lists everything else ARSO publishes, with distances worked out from ARSO's coordinates.
 
@@ -46,7 +46,7 @@ The first run back-fills each station: the last 30 days at 30-minute resolution,
 stations.json               all ARSO stations + latest reading, nearest first
 <id>/meta.json              what is stored for a tracked station
 <id>/daily.csv              date,level,flow,temp,src  (src a = ARSO archive, m = mean of live data)
-<id>/live/YYYY-MM.csv       time (UTC),level,flow,temp  - half-hourly
+<id>/live/YYYY-MM.csv       time (UTC),level,flow,temp  - measured readings, 10-60 min apart
 ```
 
 Units: level in cm (on the gauge's own scale, not above sea level), flow in m³/s, temperature in °C.

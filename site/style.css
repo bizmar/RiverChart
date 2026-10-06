@@ -151,6 +151,8 @@ h1 { font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.01em; }
   color: var(--ink);
 }
 .status svg { flex: none; }
+.status { flex-wrap: wrap; }
+.status .thresholds { color: var(--ink-2); }
 
 /* chart card */
 .card {

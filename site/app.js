@@ -40,7 +40,7 @@ const el = (tag, cls, text) => {
 // ---------------------------------------------------------------- formatting
 
 const nf = (digits) => new Intl.NumberFormat("en-GB", { maximumFractionDigits: digits, minimumFractionDigits: 0 });
-const fmtVal = (v, metric) => (v == null ? "–" : nf(METRICS[metric].digits).format(v));
+const fmtVal = (v, metric) => (v == null ? "–" : nf(metric === "flow" && Math.abs(v) < 10 ? 2 : METRICS[metric].digits).format(v));
 const dateFmt = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, weekday: "short", day: "numeric", month: "short", year: "numeric" });
 const timeFmt = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
 const shortDateFmt = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, day: "numeric", month: "short", year: "numeric" });
@@ -149,7 +149,7 @@ async function loadMonths(id, months) {
   return todo.length > 0;
 }
 
-// One continuous line: validated daily means first, then half-hourly live readings.
+// One continuous line: validated daily means first, then measured live readings.
 function buildPoints(c, metric) {
   const live = [...c.live.keys()].sort().flatMap((m) => c.live.get(m)).filter((r) => r[metric] != null);
   const liveStart = live.length ? live[0].t : Infinity;
@@ -236,7 +236,6 @@ function chartOption() {
       data: state.points,
       showSymbol: false,
       symbolSize: 8,
-      sampling: "minmax", // keeps flood peaks when zoomed out
       connectNulls: false,
       lineStyle: { width: 2, color: series },
       itemStyle: { color: series, borderColor: surface, borderWidth: 2 },
@@ -286,7 +285,7 @@ async function onWindow(s, e) {
   state.window = [s, e];
   renderWindowStats();
   if ($("table").closest("details").open) renderTable();
-  // Zoomed into an older stretch: fetch the half-hourly months it covers.
+  // Zoomed into an older stretch: fetch the measured months it covers.
   const c = state.cache[state.station];
   if (lazyBusy || !c || e - s > 120 * DAY) return;
   const want = c.meta.live_months.filter((m) => {
@@ -335,7 +334,7 @@ function renderWindowStats() {
   item("Highest in view", hi[1], hi[0]);
   item("Average in view", sum / pts.length);
   const daily = pts.some((p) => p[2]);
-  box.append(wrapStat("Resolution", el("dd", null, daily ? "Daily means" + (pts.some((p) => !p[2]) ? " + 30 min" : "") : "30 min")));
+  box.append(wrapStat("Resolution", el("dd", null, daily ? "Daily means" + (pts.some((p) => !p[2]) ? " + measured" : "") : "Measured (10–60 min)")));
 }
 
 function renderTable() {
@@ -353,7 +352,7 @@ function renderTable() {
   const frag = document.createDocumentFragment();
   for (const [t, v, daily] of rows) {
     const tr = el("tr");
-    tr.append(el("td", null, daily ? isoLocal(t).slice(0, 10) : isoLocal(t)), el("td", null, fmtVal(v, state.metric)), el("td", null, daily ? "daily mean" : "30 min"));
+    tr.append(el("td", null, daily ? isoLocal(t).slice(0, 10) : isoLocal(t)), el("td", null, fmtVal(v, state.metric)), el("td", null, daily ? "daily mean" : "measured"));
     frag.append(tr);
   }
   tbody.replaceChildren(frag);
@@ -363,7 +362,7 @@ function downloadCsv() {
   const m = METRICS[state.metric];
   const st = state.byId[state.station];
   const lines = [`time_ljubljana,${state.metric}_${m.unit.replace(/[^a-z0-9]/gi, "")},type`];
-  for (const [t, v, daily] of visiblePoints()) lines.push(`${daily ? isoLocal(t).slice(0, 10) : isoLocal(t)},${v},${daily ? "daily" : "30min"}`);
+  for (const [t, v, daily] of visiblePoints()) lines.push(`${daily ? isoLocal(t).slice(0, 10) : isoLocal(t)},${v},${daily ? "daily_mean" : "measured"}`);
   const a = el("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv" }));
   a.download = `${st.river}-${st.place}-${state.metric}.csv`.replace(/\s+/g, "_");
@@ -429,7 +428,7 @@ function renderHero() {
   $("hero-value").textContent = fmtVal(st[state.metric], state.metric);
   $("hero-unit").textContent = st[state.metric] == null ? "" : m.unit;
 
-  // Change over the last 24 hours, from the recorded half-hourly data.
+  // Change over the last 24 hours, from the measured readings.
   const trend = $("hero-trend");
   trend.replaceChildren();
   const c = state.cache[state.station];
@@ -440,8 +439,8 @@ function renderHero() {
     const before = live.reduce((best, r) => (Math.abs(r.t - target) < Math.abs(best.t - target) ? r : best), live[0]);
     if (Math.abs(before.t - target) < 2 * 3600000) {
       const d = last[state.metric] - before[state.metric];
-      const span = el("span", d > 0 ? "up" : d < 0 ? "down" : null, `${d > 0 ? "▲ +" : d < 0 ? "▼ −" : "● "}${fmtVal(Math.abs(d), state.metric)} ${m.unit}`);
-      trend.append(span, document.createTextNode(d === 0 ? " no change in 24 h" : " in the last 24 h"));
+      if (d === 0) trend.textContent = "No change in the last 24 h";
+      else trend.append(el("span", d > 0 ? "up" : "down", `${d > 0 ? "▲ +" : "▼ −"}${fmtVal(Math.abs(d), state.metric)} ${m.unit}`), " in the last 24 h");
     }
   }
 
@@ -460,11 +459,18 @@ function renderHero() {
     stats.append(wrapStat("Measured", dd));
   }
 
+  if (st[state.metric] == null) trend.textContent = "No live reading from ARSO right now. The chart shows the recorded history.";
+
   const status = $("status");
   status.replaceChildren();
   const cls = classify(st.flow_class) || classify(st.level_class);
-  status.hidden = !cls;
+  const flood = st.thresholds?.flow;
+  status.hidden = !cls && !flood;
   if (cls) status.append(statusNode(cls, st.flow_class ? "Flow" : "Level"));
+  if (flood) {
+    const stages = Object.entries(flood).sort().map(([k, v]) => `${k}: ${fmtVal(v, "flow")}`).join(" · ");
+    status.append(el("span", "thresholds", `${cls ? "· " : ""}Flood stages at ${stages} m³/s`));
+  }
 }
 
 function wrapStat(label, dd) {

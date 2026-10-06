@@ -4,7 +4,7 @@ Three sources are used:
 
 * ``hidro_podatki_zadnji.xml`` - the latest reading of every automatic station,
   with coordinates. Used as the station catalogue.
-* ``H<id>_t_<days>.html`` - a table of half-hourly readings for the last 1 or
+* ``H<id>_t_<days>.html`` - a table of readings for the last 1 day (every 10 min) or
   30 days (the same data behind the static graph on the ARSO station pages).
 * ``hidarhiv/pov_arhiv_tab.php`` - the validated daily archive, one year per
   request, going back decades.
