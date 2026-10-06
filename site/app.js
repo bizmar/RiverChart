@@ -709,7 +709,7 @@ async function init() {
   if (state.station) await update();
 }
 
-// ---------------------------------------------------------------- preferences (theme, privacy)
+// ---------------------------------------------------------------- theme preference
 
 // Kept in localStorage on this device only; nothing is sent anywhere. No cookies.
 const prefs = {
@@ -735,33 +735,9 @@ function applyTheme(name) {
   if (chart && Object.keys(state.series).length) renderChart(true);
 }
 
-const CONSENT_KEY = "rc-consent";
-function savedConsent() {
-  try { return JSON.parse(prefs.get(CONSENT_KEY)); } catch { return null; }
-}
-// Any analytics added later must call this first and load nothing when it returns false.
-// Without a saved choice, the browser's Global Privacy Control / Do Not Track signal counts as "no".
-function analyticsAllowed() {
-  const c = savedConsent();
-  if (c) return c.analytics === true;
-  return !(navigator.globalPrivacyControl || navigator.doNotTrack === "1");
-}
-window.RiverChart = { analyticsAllowed };
-
-function showConsent() {
-  $("analytics").checked = analyticsAllowed();
-  $("consent").hidden = false;
-}
-
 function setupPrefs() {
   const saved = prefs.get("rc-theme");
   applyTheme(THEMES[saved] ? saved : "auto");
-  $("consent-ok").onclick = () => {
-    prefs.set(CONSENT_KEY, JSON.stringify({ v: 1, analytics: $("analytics").checked, at: new Date().toISOString() }));
-    $("consent").hidden = true;
-  };
-  $("privacy").onclick = showConsent;
-  if (!savedConsent()) showConsent();
 }
 
 setupPrefs();

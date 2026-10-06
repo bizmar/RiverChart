@@ -73,10 +73,7 @@ python3 scripts/update.py --store site/data       # real data from ARSO
 
 ## Privacy
 
-- **No cookies, no ads, no tracking.** The page loads only from its own site; the chart library ([Apache ECharts](https://echarts.apache.org/), Apache-2.0) is served from `site/vendor/` rather than a CDN.
-- Two choices are kept in the browser's `localStorage`, on the visitor's device only: the colour theme (`rc-theme`) and the privacy notice answer (`rc-consent`).
-- The first visit shows a short notice with a switch for anonymous statistics. **No statistics are collected today.** If analytics are ever added, the code must call `RiverChart.analyticsAllowed()` first and load nothing when it returns `false`. Without a saved answer, a browser's Global Privacy Control or Do Not Track signal counts as "no".
-- GitHub Pages, as the host, sees visitors' IP addresses like any web server does.
+No cookies, no ads, no tracking. The page loads only from its own site: the chart library ([Apache ECharts](https://echarts.apache.org/), Apache-2.0) is served from `site/vendor/` rather than a CDN. The only thing stored is the colour theme choice (`rc-theme` in the browser's `localStorage`), which stays on the visitor's device. GitHub Pages, as the host, sees visitors' IP addresses like any web server does.
 
 ## Data and licence
 
