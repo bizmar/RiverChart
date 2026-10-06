@@ -180,6 +180,16 @@ function available() {
   return Object.keys(METRICS).filter((k) => st?.[k] != null || c?.daily?.some((d) => d[k] != null) || live.some((r) => r[k] != null));
 }
 const panels = () => (state.metric === ALL ? available() : [state.metric]);
+// Phone layout: TradingView-style dense chart with the value scale on the right.
+const isCompact = () => matchMedia("(max-width: 640px)").matches;
+
+// Black or white text, whichever reads better on a filled badge of this colour.
+function inkOn(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const lin = (c) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const L = 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  return L > 0.18 ? "#0b0b0b" : "#ffffff";
+}
 
 function buildAllSeries() {
   const c = state.cache[state.station];
@@ -191,22 +201,36 @@ function chartOption() {
   const n = ids.length;
   const ink2 = css("--ink-2"), muted = css("--muted"), grid = css("--grid"), axis = css("--axis"), surface = css("--surface");
   const color = (id) => css(METRICS[id].color);
-  // Panel layout in pixels; renderChart re-runs this when the chart's height changes.
+  // Panel layout in pixels; renderChart re-runs this when the chart's size or layout mode changes.
+  const compact = isCompact();
+  const L = compact
+    ? { left: 6, right: 46, top: 22, gap: 26, bottom: 50, slider: 20, font: 10 }
+    : { left: 56, right: 16, top: n > 1 ? 34 : 28, gap: 46, bottom: 78, slider: 34, font: 12 };
   const H = $("chart").clientHeight || 480;
-  const top = n > 1 ? 34 : 28, bottom = 78, gap = 46;
-  const h = (H - top - bottom - gap * (n - 1)) / n;
+  const h = (H - L.top - L.bottom - L.gap * (n - 1)) / n;
+  const panelTop = (i) => L.top + i * (h + L.gap);
   const panelIdx = ids.map((_, i) => i);
+  // Panel titles: always in the stacked view, and on phones (where the unit has no room on the axis).
+  const titled = compact || n > 1;
+  const lastPoint = (id) => { const p = state.series[id]; for (let i = p.length - 1; i >= 0; i--) if (p[i][1] != null) return p[i]; return null; };
   return {
     animation: false,
     textStyle: { fontFamily: css("--font") },
     axisPointer: { link: [{ xAxisIndex: "all" }], lineStyle: { color: muted, width: 1 }, label: { show: false } },
-    grid: ids.map((_, i) => ({ left: 56, right: 16, top: top + i * (h + gap), height: h })),
+    title: titled ? ids.map((id, i) => ({
+      text: `{k|━━} ${METRICS[id].label} (${METRICS[id].unit})`,
+      left: compact ? 4 : 8,
+      top: panelTop(i) - (compact ? 19 : 26),
+      textStyle: { fontSize: compact ? 11 : 13, fontWeight: 600, color: ink2, rich: { k: { color: color(id), fontSize: compact ? 9 : 10 } } },
+    })) : [],
+    grid: ids.map((_, i) => ({ left: L.left, right: L.right, top: panelTop(i), height: h })),
     xAxis: ids.map((_, i) => ({
       type: "time",
       gridIndex: i,
       axisLine: { lineStyle: { color: axis } },
       axisTick: { show: false },
-      axisLabel: { show: i === n - 1, color: muted, hideOverlap: true },
+      splitNumber: compact ? 4 : undefined,
+      axisLabel: { show: i === n - 1, color: muted, hideOverlap: true, fontSize: L.font },
       splitLine: { show: false },
     })),
     yAxis: ids.map((id, i) => ({
@@ -214,16 +238,16 @@ function chartOption() {
       gridIndex: i,
       scale: id !== "flow",
       min: id === "flow" ? 0 : undefined,
-      name: n > 1 ? `${METRICS[id].label} (${METRICS[id].unit})` : METRICS[id].unit,
-      nameGap: 12,
-      nameTextStyle: n > 1
-        ? { color: ink2, fontSize: 13, fontWeight: 600, align: "left", padding: [0, 0, 0, -48] }
-        : { color: muted, align: "right", padding: [0, 6, 0, 0] },
-      axisLabel: { color: muted },
+      position: compact ? "right" : "left",
+      name: titled ? "" : METRICS[id].unit,
+      nameTextStyle: { color: muted, align: "right", padding: [0, 6, 0, 0] },
+      splitNumber: compact || n > 1 ? 3 : 5,
+      axisLabel: { color: muted, fontSize: L.font, margin: compact ? 6 : 8 },
       splitLine: { lineStyle: { color: grid } },
     })),
     tooltip: {
       trigger: "axis",
+      confine: true,
       backgroundColor: surface,
       borderColor: css("--border"),
       textStyle: { color: css("--ink") },
@@ -246,8 +270,9 @@ function chartOption() {
       {
         type: "slider",
         xAxisIndex: panelIdx,
-        height: 34,
-        bottom: 12,
+        height: L.slider,
+        bottom: compact ? 4 : 12,
+        showDetail: !compact,
         borderColor: grid,
         backgroundColor: "transparent",
         fillerColor: css("--wash"),
@@ -272,6 +297,24 @@ function chartOption() {
       lineStyle: { width: 2, color: color(id) },
       itemStyle: { color: color(id), borderColor: surface, borderWidth: 2 },
       emphasis: { disabled: true },
+      // Phones: TradingView-style badge with the latest value on the value scale.
+      markLine: compact && lastPoint(id) ? {
+        silent: true,
+        symbol: "none",
+        animation: false,
+        lineStyle: { color: color(id), type: "dashed", width: 1, opacity: 0.7 },
+        label: {
+          position: "end",
+          formatter: fmtVal(lastPoint(id)[1], id),
+          backgroundColor: color(id),
+          color: inkOn(color(id)),
+          padding: [2, 4],
+          borderRadius: 2,
+          fontSize: 10,
+          fontWeight: 600,
+        },
+        data: [{ yAxis: lastPoint(id)[1] }],
+      } : undefined,
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
           { offset: 0, color: hexAlpha(color(id), 0.2) },
@@ -306,8 +349,9 @@ function currentWindow() {
   return [dz.startValue, dz.endValue];
 }
 
-let chartHeight = 0;
+let chartHeight = 0, chartCompact = null;
 function renderChart(keepWindow) {
+  chartCompact = isCompact();
   const win = keepWindow ? currentWindow() : rangeWindow(state.range);
   $("chart").classList.toggle("multi", panels().length > 1);
   chart.resize();
@@ -394,7 +438,7 @@ function renderWindowStats() {
       const name = el("p", "ws-name");
       const key = el("span", "key");
       key.style.background = css(METRICS[id].color);
-      name.append(key, METRICS[id].label);
+      name.append(key, METRICS[id].short);
       row.append(name);
       for (const [label, d] of items) row.append(wrapStat(label, d));
       box.append(row);
@@ -486,7 +530,9 @@ function renderStationChips() {
     const b = el("button", "chip");
     b.type = "button";
     b.setAttribute("aria-pressed", String(st.id === state.station));
-    b.append(el("span", "river", st.river), el("span", "meta", `${st.place} · ${distLabel(st)}`));
+    const meta = el("span", "meta", st.place);
+    meta.append(el("span", "dist", ` · ${distLabel(st)}`));
+    b.append(el("span", "river", st.river), meta);
     b.onclick = () => selectStation(st.id);
     nav.append(b);
   }
@@ -544,7 +590,7 @@ function renderHero() {
   if (cls) status.append(statusNode(cls, st.flow_class ? "Flow" : "Level"));
   if (flood) {
     const stages = Object.entries(flood).sort().map(([k, v]) => `${k}: ${fmtVal(v, "flow")}`).join(" · ");
-    status.append(el("span", "thresholds", `${cls ? "· " : ""}Flood stages at ${stages} m³/s`));
+    status.append(el("span", "thresholds", `Flood stages at ${stages} m³/s`));
   }
 }
 
@@ -564,7 +610,9 @@ function renderNearby() {
       card.type = "button";
       card.onclick = () => { selectStation(st.id); window.scrollTo({ top: 0, behavior: "smooth" }); };
     }
-    card.append(el("div", "name", `${st.river} · ${st.place}`), el("div", "meta", `${distLabel(st)} · station ${st.id}${st.tracked ? " · history recorded" : ""}`));
+    const meta = el("div", "meta", distLabel(st));
+    meta.append(el("span", "extra", ` · station ${st.id}${st.tracked ? " · history recorded" : ""}`));
+    card.append(el("div", "name", `${st.river} · ${st.place}`), meta);
     const vals = el("div", "vals");
     for (const [id, m] of Object.entries(METRICS)) {
       if (st[id] == null) continue;
@@ -635,7 +683,8 @@ async function init() {
   });
   new ResizeObserver(() => {
     chart.resize();
-    if ($("chart").clientHeight !== chartHeight && Object.keys(state.series).length) renderChart(true);
+    const changed = $("chart").clientHeight !== chartHeight || isCompact() !== chartCompact;
+    if (changed && Object.keys(state.series).length) renderChart(true);
   }).observe($("chart"));
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderChart(true));
   $("download").onclick = downloadCsv;
@@ -653,7 +702,8 @@ async function init() {
   state.station = state.byId[catalogue.default]?.tracked ? catalogue.default : catalogue.stations.find((s) => s.tracked)?.id;
   readHash();
   const gen = Date.parse(catalogue.generated);
-  $("updated").textContent = `Data refreshed ${ago(gen)} · every 30 min`;
+  $("updated").textContent = `Data refreshed ${ago(gen)}`;
+  $("updated").append(el("span", "extra", " · every 30 min"));
   $("updated").title = dateFmt.format(gen) + " " + timeFmt.format(gen);
   renderNearby();
   if (state.station) await update();
