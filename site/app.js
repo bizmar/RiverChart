@@ -709,5 +709,61 @@ async function init() {
   if (state.station) await update();
 }
 
+// ---------------------------------------------------------------- preferences (theme, privacy)
+
+// Kept in localStorage on this device only; nothing is sent anywhere. No cookies.
+const prefs = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode: choice lasts this visit */ } },
+};
+
+const THEMES = {
+  auto: { label: "Auto", next: "light", icon: '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor"/>' },
+  light: { label: "Light", next: "dark", icon: '<circle cx="8" cy="8" r="3" fill="currentColor"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' },
+  dark: { label: "Dark", next: "auto", icon: '<path d="M13.5 9.5A6 6 0 0 1 6.5 2.5a6 6 0 1 0 7 7z" fill="currentColor"/>' },
+};
+
+function applyTheme(name) {
+  if (name === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = name;
+  const t = THEMES[name], b = $("theme");
+  b.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">${t.icon}</svg><span class="label"></span>`;
+  b.querySelector(".label").textContent = t.label;
+  b.setAttribute("aria-label", `Colour theme: ${t.label}. Switch to ${THEMES[t.next].label}.`);
+  b.title = `Theme: ${t.label} (click for ${THEMES[t.next].label})`;
+  b.onclick = () => { prefs.set("rc-theme", t.next); applyTheme(t.next); };
+  if (chart && Object.keys(state.series).length) renderChart(true);
+}
+
+const CONSENT_KEY = "rc-consent";
+function savedConsent() {
+  try { return JSON.parse(prefs.get(CONSENT_KEY)); } catch { return null; }
+}
+// Any analytics added later must call this first and load nothing when it returns false.
+// Without a saved choice, the browser's Global Privacy Control / Do Not Track signal counts as "no".
+function analyticsAllowed() {
+  const c = savedConsent();
+  if (c) return c.analytics === true;
+  return !(navigator.globalPrivacyControl || navigator.doNotTrack === "1");
+}
+window.RiverChart = { analyticsAllowed };
+
+function showConsent() {
+  $("analytics").checked = analyticsAllowed();
+  $("consent").hidden = false;
+}
+
+function setupPrefs() {
+  const saved = prefs.get("rc-theme");
+  applyTheme(THEMES[saved] ? saved : "auto");
+  $("consent-ok").onclick = () => {
+    prefs.set(CONSENT_KEY, JSON.stringify({ v: 1, analytics: $("analytics").checked, at: new Date().toISOString() }));
+    $("consent").hidden = true;
+  };
+  $("privacy").onclick = showConsent;
+  if (!savedConsent()) showConsent();
+}
+
+setupPrefs();
 if (window.echarts) init();
 else window.addEventListener("load", () => (window.echarts ? init() : showError("The chart library failed to load.")));

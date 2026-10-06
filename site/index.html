@@ -6,8 +6,12 @@
   <title>RiverChart · Ljubljanica &amp; Sava at Zalog</title>
   <meta name="description" content="Live and historic water level, flow and temperature of the Ljubljanica and Sava around Zalog, Ljubljana. Data: ARSO.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <script>
+    // Apply a saved light/dark choice before the page draws, so there is no flash.
+    try { var t = localStorage.getItem("rc-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
   <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js" defer></script>
+  <script src="vendor/echarts-5.6.0.min.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -19,7 +23,10 @@
         <p class="tagline">River levels where the Ljubljanica meets the Sava · Zalog</p>
       </div>
     </div>
-    <p class="updated" id="updated"></p>
+    <div class="top-right">
+      <p class="updated" id="updated"></p>
+      <button type="button" class="icon-button" id="theme"></button>
+    </div>
   </header>
 
   <main>
@@ -60,7 +67,13 @@
 
   <footer>
     <p>Data: <a href="https://www.arso.gov.si/vode/podatki/">Agencija RS za okolje (ARSO)</a>. Recent values are automatic, unvalidated measurements. Older history is ARSO's validated daily archive.</p>
-    <p><a href="https://github.com/bizmar/RiverChart">Source on GitHub</a></p>
+    <p><a href="https://github.com/bizmar/RiverChart">Source on GitHub</a> · <button type="button" class="link-button" id="privacy">Privacy &amp; analytics</button></p>
   </footer>
+
+  <aside class="consent" id="consent" aria-label="Privacy" hidden>
+    <p><strong>No ads, no cookies.</strong> RiverChart shows no advertising and sets no cookies. Your theme choice and this setting are saved in this browser only.</p>
+    <label><input type="checkbox" id="analytics"> <span>Allow anonymous visit statistics <span class="muted">(none are collected yet; if added, they will be cookie-free)</span></span></label>
+    <div class="actions"><button type="button" class="primary-button" id="consent-ok">OK</button></div>
+  </aside>
 </body>
 </html>

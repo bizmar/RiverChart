@@ -10,7 +10,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
 - a data table and a CSV download for whatever range you are looking at
 - every nearby ARSO gauge, sorted by distance from Zalog
-- light and dark mode, and a layout that works on a phone
+- light and dark mode that follows your device, with a manual override, and a dense chart-first layout on phones
 
 ## Which gauge is closest to Zalog?
 
@@ -70,6 +70,13 @@ python3 -m http.server -d site 8000               # open http://localhost:8000
 python3 -m unittest discover tests                # parser and store tests
 python3 scripts/update.py --store site/data       # real data from ARSO
 ```
+
+## Privacy
+
+- **No cookies, no ads, no tracking.** The page loads only from its own site; the chart library ([Apache ECharts](https://echarts.apache.org/), Apache-2.0) is served from `site/vendor/` rather than a CDN.
+- Two choices are kept in the browser's `localStorage`, on the visitor's device only: the colour theme (`rc-theme`) and the privacy notice answer (`rc-consent`).
+- The first visit shows a short notice with a switch for anonymous statistics. **No statistics are collected today.** If analytics are ever added, the code must call `RiverChart.analyticsAllowed()` first and load nothing when it returns `false`. Without a saved answer, a browser's Global Privacy Control or Do Not Track signal counts as "no".
+- GitHub Pages, as the host, sees visitors' IP addresses like any web server does.
 
 ## Data and licence
 
