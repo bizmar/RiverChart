@@ -5,9 +5,9 @@ const DAY = 86400000;
 const TZ = "Europe/Ljubljana";
 
 const METRICS = {
-  level: { label: "Water level", short: "Level", unit: "cm", digits: 0 },
-  flow: { label: "Flow", short: "Flow", unit: "m³/s", digits: 1 },
-  temp: { label: "Water temperature", short: "Temperature", unit: "°C", digits: 1 },
+  level: { label: "Water level", short: "Level", unit: "cm", digits: 0, color: "--c-level" },
+  flow: { label: "Flow", short: "Flow", unit: "m³/s", digits: 1, color: "--c-flow" },
+  temp: { label: "Water temperature", short: "Temperature", unit: "°C", digits: 1, color: "--c-temp" },
 };
 const RANGES = [
   { id: "2d", label: "2 d", title: "Last 2 days", days: 2 },
@@ -25,7 +25,7 @@ const state = {
   metric: "level",
   range: "7d",
   cache: {},
-  points: [],
+  series: {},
   window: [0, 0],
 };
 
@@ -167,62 +167,92 @@ function buildPoints(c, metric) {
 
 // ---------------------------------------------------------------- chart
 
+// state.metric is one of METRICS, or ALL for the three measurements stacked on one time axis.
+const ALL = "all";
 let chart;
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+// Measurements this station has any data for.
+function available() {
+  const st = state.byId[state.station];
+  const c = state.cache[state.station];
+  const live = c ? [...c.live.values()].flat() : [];
+  return Object.keys(METRICS).filter((k) => st?.[k] != null || c?.daily?.some((d) => d[k] != null) || live.some((r) => r[k] != null));
+}
+const panels = () => (state.metric === ALL ? available() : [state.metric]);
+
+function buildAllSeries() {
+  const c = state.cache[state.station];
+  state.series = Object.fromEntries(panels().map((id) => [id, buildPoints(c, id)]));
+}
+
 function chartOption() {
-  const m = METRICS[state.metric];
-  const ink2 = css("--ink-2"), muted = css("--muted"), grid = css("--grid"), axis = css("--axis");
-  const series = css("--series"), surface = css("--surface");
+  const ids = panels();
+  const n = ids.length;
+  const ink2 = css("--ink-2"), muted = css("--muted"), grid = css("--grid"), axis = css("--axis"), surface = css("--surface");
+  const color = (id) => css(METRICS[id].color);
+  // Panel layout in pixels; renderChart re-runs this when the chart's height changes.
+  const H = $("chart").clientHeight || 480;
+  const top = n > 1 ? 34 : 28, bottom = 78, gap = 46;
+  const h = (H - top - bottom - gap * (n - 1)) / n;
+  const panelIdx = ids.map((_, i) => i);
   return {
     animation: false,
     textStyle: { fontFamily: css("--font") },
-    grid: { left: 8, right: 16, top: 28, bottom: 78, containLabel: true },
-    xAxis: {
+    axisPointer: { link: [{ xAxisIndex: "all" }], lineStyle: { color: muted, width: 1 }, label: { show: false } },
+    grid: ids.map((_, i) => ({ left: 56, right: 16, top: top + i * (h + gap), height: h })),
+    xAxis: ids.map((_, i) => ({
       type: "time",
+      gridIndex: i,
       axisLine: { lineStyle: { color: axis } },
       axisTick: { show: false },
-      axisLabel: { color: muted, hideOverlap: true },
+      axisLabel: { show: i === n - 1, color: muted, hideOverlap: true },
       splitLine: { show: false },
-    },
-    yAxis: {
+    })),
+    yAxis: ids.map((id, i) => ({
       type: "value",
-      scale: state.metric !== "flow",
-      min: state.metric === "flow" ? 0 : undefined,
-      name: m.unit,
-      nameTextStyle: { color: muted, align: "right", padding: [0, 6, 0, 0] },
+      gridIndex: i,
+      scale: id !== "flow",
+      min: id === "flow" ? 0 : undefined,
+      name: n > 1 ? `${METRICS[id].label} (${METRICS[id].unit})` : METRICS[id].unit,
+      nameGap: 12,
+      nameTextStyle: n > 1
+        ? { color: ink2, fontSize: 13, fontWeight: 600, align: "left", padding: [0, 0, 0, -48] }
+        : { color: muted, align: "right", padding: [0, 6, 0, 0] },
       axisLabel: { color: muted },
       splitLine: { lineStyle: { color: grid } },
-    },
+    })),
     tooltip: {
       trigger: "axis",
       backgroundColor: surface,
       borderColor: css("--border"),
       textStyle: { color: css("--ink") },
-      axisPointer: { type: "line", lineStyle: { color: muted, width: 1 }, label: { show: false } },
       formatter: (params) => {
-        const p = params.find((x) => x.value[1] != null);
-        if (!p) return "";
-        const [t, v, daily] = p.value;
+        const shown = params.filter((x) => x.value[1] != null).sort((a, b) => a.seriesIndex - b.seriesIndex);
+        if (!shown.length) return "";
+        const [t, , daily] = shown[0].value;
         const when = daily ? `${dateFmt.format(t)} · daily mean` : `${dateFmt.format(t)}, ${timeFmt.format(t)}`;
-        return `<div style="font-size:13px;color:${ink2}">${when}</div>` +
-          `<div style="display:flex;align-items:center;gap:8px;margin-top:4px">` +
-          `<span style="display:inline-block;width:14px;height:2px;background:${series};border-radius:1px"></span>` +
-          `<b style="font-size:16px">${fmtVal(v, state.metric)} ${m.unit}</b>` +
-          `<span style="color:${ink2}">${m.short}</span></div>`;
+        return `<div style="font-size:13px;color:${ink2}">${when}</div>` + shown.map((p) => {
+          const id = ids[p.seriesIndex];
+          return `<div style="display:flex;align-items:center;gap:8px;margin-top:4px">` +
+            `<span style="display:inline-block;width:14px;height:2px;background:${color(id)};border-radius:1px"></span>` +
+            `<b style="font-size:16px">${fmtVal(p.value[1], id)} ${METRICS[id].unit}</b>` +
+            `<span style="color:${ink2}">${METRICS[id].short}</span></div>`;
+        }).join("");
       },
     },
     dataZoom: [
-      { type: "inside", throttle: 50 },
+      { type: "inside", xAxisIndex: panelIdx, throttle: 50 },
       {
         type: "slider",
+        xAxisIndex: panelIdx,
         height: 34,
         bottom: 12,
         borderColor: grid,
         backgroundColor: "transparent",
         fillerColor: css("--wash"),
         dataBackground: { lineStyle: { color: muted, width: 1 }, areaStyle: { color: muted, opacity: 0.12 } },
-        selectedDataBackground: { lineStyle: { color: series, width: 1 }, areaStyle: { color: series, opacity: 0.18 } },
+        selectedDataBackground: { lineStyle: { color: color(ids[0]), width: 1 }, areaStyle: { color: color(ids[0]), opacity: 0.18 } },
         handleStyle: { color: surface, borderColor: muted },
         moveHandleStyle: { color: muted, opacity: 0.4 },
         textStyle: { color: muted },
@@ -230,23 +260,25 @@ function chartOption() {
         brushSelect: false,
       },
     ],
-    series: [{
+    series: ids.map((id, i) => ({
       type: "line",
-      name: m.label,
-      data: state.points,
+      name: METRICS[id].label,
+      xAxisIndex: i,
+      yAxisIndex: i,
+      data: state.series[id],
       showSymbol: false,
       symbolSize: 8,
       connectNulls: false,
-      lineStyle: { width: 2, color: series },
-      itemStyle: { color: series, borderColor: surface, borderWidth: 2 },
+      lineStyle: { width: 2, color: color(id) },
+      itemStyle: { color: color(id), borderColor: surface, borderWidth: 2 },
       emphasis: { disabled: true },
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: hexAlpha(series, 0.22) },
-          { offset: 1, color: hexAlpha(series, 0) },
+          { offset: 0, color: hexAlpha(color(id), 0.2) },
+          { offset: 1, color: hexAlpha(color(id), 0) },
         ]),
       },
-    }],
+    })),
   };
 }
 
@@ -256,9 +288,10 @@ function hexAlpha(hex, a) {
 }
 
 function rangeWindow(rangeId) {
-  const pts = state.points;
-  if (!pts.length) return [0, 0];
-  const first = pts[0][0], last = pts[pts.length - 1][0];
+  const all = panels().map((id) => state.series[id]).filter((p) => p?.length);
+  if (!all.length) return [0, 0];
+  const first = Math.min(...all.map((p) => p[0][0]));
+  const last = Math.max(...all.map((p) => p[p.length - 1][0]));
   const r = RANGES.find((x) => x.id === rangeId);
   return [r.days === Infinity ? first : Math.max(first, last - r.days * DAY), last];
 }
@@ -273,9 +306,13 @@ function currentWindow() {
   return [dz.startValue, dz.endValue];
 }
 
+let chartHeight = 0;
 function renderChart(keepWindow) {
   const win = keepWindow ? currentWindow() : rangeWindow(state.range);
-  chart.setOption(chartOption(), { replaceMerge: ["series"] });
+  $("chart").classList.toggle("multi", panels().length > 1);
+  chart.resize();
+  chartHeight = $("chart").clientHeight;
+  chart.setOption(chartOption(), { notMerge: true });
   setWindow(win);
 }
 
@@ -299,8 +336,8 @@ async function onWindow(s, e) {
     const first = c.meta.live_months.indexOf(want[0]);
     const loadedFirst = Math.min(...[...c.live.keys()].map((m) => c.meta.live_months.indexOf(m)));
     if (await loadMonths(state.station, c.meta.live_months.slice(first, Math.max(loadedFirst, first + 1)))) {
-      state.points = buildPoints(c, state.metric);
-      chart.setOption({ series: [{ data: state.points }] });
+      buildAllSeries();
+      chart.setOption({ series: panels().map((id) => ({ data: state.series[id] })) });
       setWindow([s, e]);
     }
   } finally {
@@ -308,61 +345,97 @@ async function onWindow(s, e) {
   }
 }
 
-function visiblePoints() {
+function visiblePoints(id) {
   const [s, e] = state.window;
-  return state.points.filter((p) => p[1] != null && p[0] >= s && p[0] <= e);
+  return (state.series[id] ?? []).filter((p) => p[1] != null && p[0] >= s && p[0] <= e);
+}
+
+// Rows of the visible window, one per timestamp, with a value per shown measurement.
+function visibleRows() {
+  const ids = panels();
+  const byTime = new Map();
+  for (const id of ids) {
+    for (const [t, v, daily] of visiblePoints(id)) {
+      const row = byTime.get(t) ?? { t, daily: !!daily, vals: {} };
+      row.vals[id] = v;
+      byTime.set(t, row);
+    }
+  }
+  return { ids, rows: [...byTime.values()].sort((a, b) => a.t - b.t) };
 }
 
 function renderWindowStats() {
-  const pts = visiblePoints();
   const box = $("window-stats");
   box.replaceChildren();
-  if (!pts.length) return;
-  let lo = pts[0], hi = pts[0], sum = 0;
-  for (const p of pts) {
-    if (p[1] < lo[1]) lo = p;
-    if (p[1] > hi[1]) hi = p;
-    sum += p[1];
+  const ids = panels();
+  const multi = ids.length > 1;
+  box.classList.toggle("multi", multi);
+  let anyDaily = false, anyLive = false;
+  for (const id of ids) {
+    const pts = visiblePoints(id);
+    if (!pts.length) continue;
+    let lo = pts[0], hi = pts[0], sum = 0;
+    for (const p of pts) {
+      if (p[1] < lo[1]) lo = p;
+      if (p[1] > hi[1]) hi = p;
+      sum += p[1];
+      if (p[2]) anyDaily = true;
+      else anyLive = true;
+    }
+    const unit = METRICS[id].unit;
+    const dd = (v, t) => {
+      const d = el("dd", null, `${fmtVal(v, id)} ${unit}`);
+      if (t != null) d.append(el("span", null, shortDateFmt.format(t)));
+      return d;
+    };
+    const items = [["Lowest", dd(lo[1], lo[0])], ["Highest", dd(hi[1], hi[0])], ["Average", dd(sum / pts.length)]];
+    if (multi) {
+      const row = el("div", "ws-row");
+      const name = el("p", "ws-name");
+      const key = el("span", "key");
+      key.style.background = css(METRICS[id].color);
+      name.append(key, METRICS[id].label);
+      row.append(name);
+      for (const [label, d] of items) row.append(wrapStat(label, d));
+      box.append(row);
+    } else {
+      for (const [label, d] of items) box.append(wrapStat(`${label} in view`, d));
+    }
   }
-  const unit = METRICS[state.metric].unit;
-  const item = (label, v, t) => {
-    const dd = el("dd", null, `${fmtVal(v, state.metric)} ${unit}`);
-    if (t != null) dd.append(el("span", null, shortDateFmt.format(t)));
-    box.append(wrapStat(label, dd));
-  };
-  item("Lowest in view", lo[1], lo[0]);
-  item("Highest in view", hi[1], hi[0]);
-  item("Average in view", sum / pts.length);
-  const daily = pts.some((p) => p[2]);
-  box.append(wrapStat("Resolution", el("dd", null, daily ? "Daily means" + (pts.some((p) => !p[2]) ? " + measured" : "") : "Measured (10–60 min)")));
+  if (anyDaily || anyLive) {
+    const res = anyDaily ? "Daily means" + (anyLive ? " + measured" : "") : "Measured (10–60 min)";
+    box.append(wrapStat("Resolution", el("dd", null, res)));
+  }
 }
 
+const rowTime = (r) => (r.daily ? isoLocal(r.t).slice(0, 10) : isoLocal(r.t));
+
 function renderTable() {
-  const pts = visiblePoints();
-  const m = METRICS[state.metric];
+  const { ids, rows } = visibleRows();
   const MAX = 1000;
-  const rows = pts.slice(-MAX).reverse();
-  $("table-note").textContent = pts.length > MAX
-    ? `Showing the latest ${MAX} of ${pts.length} values in view. Download for all of them.`
-    : `${pts.length} values in view.`;
+  $("table-note").textContent = rows.length > MAX
+    ? `Showing the latest ${MAX} of ${rows.length} rows in view. Download for all of them.`
+    : `${rows.length} rows in view.`;
   const thead = $("table").tHead, tbody = $("table").tBodies[0];
   thead.replaceChildren();
   const hr = thead.insertRow();
-  for (const h of ["Time (Ljubljana)", `${m.label} (${m.unit})`, "Type"]) hr.append(el("th", null, h));
+  for (const h of ["Time (Ljubljana)", ...ids.map((id) => `${METRICS[id].label} (${METRICS[id].unit})`), "Type"]) hr.append(el("th", null, h));
   const frag = document.createDocumentFragment();
-  for (const [t, v, daily] of rows) {
+  for (const r of rows.slice(-MAX).reverse()) {
     const tr = el("tr");
-    tr.append(el("td", null, daily ? isoLocal(t).slice(0, 10) : isoLocal(t)), el("td", null, fmtVal(v, state.metric)), el("td", null, daily ? "daily mean" : "measured"));
+    tr.append(el("td", null, rowTime(r)));
+    for (const id of ids) tr.append(el("td", null, r.vals[id] == null ? "" : fmtVal(r.vals[id], id)));
+    tr.append(el("td", null, r.daily ? "daily mean" : "measured"));
     frag.append(tr);
   }
   tbody.replaceChildren(frag);
 }
 
 function downloadCsv() {
-  const m = METRICS[state.metric];
+  const { ids, rows } = visibleRows();
   const st = state.byId[state.station];
-  const lines = [`time_ljubljana,${state.metric}_${m.unit.replace(/[^a-z0-9]/gi, "")},type`];
-  for (const [t, v, daily] of visiblePoints()) lines.push(`${daily ? isoLocal(t).slice(0, 10) : isoLocal(t)},${v},${daily ? "daily_mean" : "measured"}`);
+  const lines = [["time_ljubljana", ...ids.map((id) => `${id}_${METRICS[id].unit.replace(/[^a-z0-9]/gi, "")}`), "type"].join(",")];
+  for (const r of rows) lines.push([rowTime(r), ...ids.map((id) => r.vals[id] ?? ""), r.daily ? "daily_mean" : "measured"].join(","));
   const a = el("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv" }));
   a.download = `${st.river}-${st.place}-${state.metric}.csv`.replace(/\s+/g, "_");
@@ -375,16 +448,16 @@ function downloadCsv() {
 function renderControls() {
   const metrics = $("metrics");
   metrics.replaceChildren();
-  const st = state.byId[state.station];
-  for (const [id, m] of Object.entries(METRICS)) {
-    const b = el("button", null, m.short);
+  const has = available();
+  const options = [...Object.entries(METRICS).map(([id, m]) => [id, m.short, m.label]), [ALL, "All", "All three, stacked"]];
+  for (const [id, label, title] of options) {
+    const b = el("button", null, label);
     b.type = "button";
+    b.title = title;
     b.setAttribute("role", "radio");
     b.setAttribute("aria-checked", String(id === state.metric));
-    const c = state.cache[state.station];
-    const has = st?.[id] != null || c?.daily?.some((d) => d[id] != null);
-    b.disabled = !has;
-    b.onclick = () => { state.metric = id; update(); };
+    b.disabled = id === ALL ? has.length < 2 : !has.includes(id);
+    b.onclick = () => { state.metric = id; update(true); };
     metrics.append(b);
   }
   const ranges = $("ranges");
@@ -423,31 +496,33 @@ const distLabel = (st) => (st.dist_km == null ? "" : st.dist_km < 1 ? `${Math.ro
 
 function renderHero() {
   const st = state.byId[state.station];
-  const m = METRICS[state.metric];
+  // In the stacked view the headline number is the first shown measurement (normally the level).
+  const hm = state.metric === ALL ? panels()[0] ?? "level" : state.metric;
+  const m = METRICS[hm];
   $("hero-label").textContent = `${m.label} · ${st.river}, ${st.place}`;
-  $("hero-value").textContent = fmtVal(st[state.metric], state.metric);
-  $("hero-unit").textContent = st[state.metric] == null ? "" : m.unit;
+  $("hero-value").textContent = fmtVal(st[hm], hm);
+  $("hero-unit").textContent = st[hm] == null ? "" : m.unit;
 
   // Change over the last 24 hours, from the measured readings.
   const trend = $("hero-trend");
   trend.replaceChildren();
   const c = state.cache[state.station];
-  const live = c ? [...c.live.keys()].sort().flatMap((k) => c.live.get(k)).filter((r) => r[state.metric] != null) : [];
+  const live = c ? [...c.live.keys()].sort().flatMap((k) => c.live.get(k)).filter((r) => r[hm] != null) : [];
   if (live.length > 1) {
     const last = live[live.length - 1];
     const target = last.t - DAY;
     const before = live.reduce((best, r) => (Math.abs(r.t - target) < Math.abs(best.t - target) ? r : best), live[0]);
     if (Math.abs(before.t - target) < 2 * 3600000) {
-      const d = last[state.metric] - before[state.metric];
+      const d = last[hm] - before[hm];
       if (d === 0) trend.textContent = "No change in the last 24 h";
-      else trend.append(el("span", d > 0 ? "up" : "down", `${d > 0 ? "▲ +" : "▼ −"}${fmtVal(Math.abs(d), state.metric)} ${m.unit}`), " in the last 24 h");
+      else trend.append(el("span", d > 0 ? "up" : "down", `${d > 0 ? "▲ +" : "▼ −"}${fmtVal(Math.abs(d), hm)} ${m.unit}`), " in the last 24 h");
     }
   }
 
   const stats = $("hero-stats");
   stats.replaceChildren();
   for (const [id, mm] of Object.entries(METRICS)) {
-    if (id === state.metric || st[id] == null) continue;
+    if (id === hm || st[id] == null) continue;
     const dd = el("dd", null, fmtVal(st[id], id));
     dd.append(el("small", null, mm.unit));
     stats.append(wrapStat(mm.label, dd));
@@ -459,7 +534,7 @@ function renderHero() {
     stats.append(wrapStat("Measured", dd));
   }
 
-  if (st[state.metric] == null) trend.textContent = "No live reading from ARSO right now. The chart shows the recorded history.";
+  if (st[hm] == null) trend.textContent = "No live reading from ARSO right now. The chart shows the recorded history.";
 
   const status = $("status");
   status.replaceChildren();
@@ -513,7 +588,7 @@ function renderNearby() {
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   if (p.get("s") && state.byId[p.get("s")]?.tracked) state.station = p.get("s");
-  if (METRICS[p.get("m")]) state.metric = p.get("m");
+  if (METRICS[p.get("m")] || p.get("m") === ALL) state.metric = p.get("m");
   if (RANGES.some((r) => r.id === p.get("r"))) state.range = p.get("r");
 }
 function writeHash() {
@@ -525,20 +600,19 @@ async function selectStation(id) {
   await update();
 }
 
-async function update() {
+// keepWindow: stay on the same time range (switching measurement), instead of the range preset.
+async function update(keepWindow = false) {
   writeHash();
   renderStationChips();
   $("chart").classList.add("loading");
   try {
     const c = await stationData(state.station);
-    const st = state.byId[state.station];
-    if (st[state.metric] == null && !c.daily.some((d) => d[state.metric] != null)) {
-      state.metric = Object.keys(METRICS).find((k) => st[k] != null) ?? "level";
-    }
-    state.points = buildPoints(c, state.metric);
+    const has = available();
+    if (state.metric === ALL ? has.length < 2 : !has.includes(state.metric)) state.metric = has[0] ?? "level";
+    buildAllSeries();
     renderHero();
     renderControls();
-    renderChart(false);
+    renderChart(keepWindow && chart.getOption()?.series?.length > 0);
   } catch (err) {
     showError(`Could not load data for this station (${err.message}).`);
   } finally {
@@ -559,7 +633,10 @@ async function init() {
     for (const b of $("ranges").children) b.setAttribute("aria-checked", "false");
     onWindow(s, e);
   });
-  new ResizeObserver(() => chart.resize()).observe($("chart"));
+  new ResizeObserver(() => {
+    chart.resize();
+    if ($("chart").clientHeight !== chartHeight && Object.keys(state.series).length) renderChart(true);
+  }).observe($("chart"));
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderChart(true));
   $("download").onclick = downloadCsv;
   $("table").closest("details").addEventListener("toggle", (e) => e.target.open && renderTable());

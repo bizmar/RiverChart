@@ -6,6 +6,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 
 - the current water level, flow and water temperature, with the change over the last 24 hours and ARSO's own status (normal / high / flood stage)
 - an **interactive chart**: zoom with the scroll wheel or a pinch, drag to pan, or jump to 2 days … 10 years … the whole record
+- **All** view: water level, flow and temperature stacked on one shared time axis, so zooming, panning and the hover readout move together
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
 - a data table and a CSV download for whatever range you are looking at
 - every nearby ARSO gauge, sorted by distance from Zalog

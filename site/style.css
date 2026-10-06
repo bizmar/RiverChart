@@ -10,6 +10,9 @@
   --border: rgba(11, 11, 11, 0.10);
   --wash: rgba(11, 11, 11, 0.05);
   --series: #2a78d6;
+  --c-level: #2a78d6;
+  --c-flow: #1baf7a;
+  --c-temp: #eb6834;
   --accent-ink: #1c5cab;
   --good: #0ca30c;
   --warning: #fab219;
@@ -33,6 +36,9 @@
     --border: rgba(255, 255, 255, 0.10);
     --wash: rgba(255, 255, 255, 0.06);
     --series: #3987e5;
+    --c-level: #3987e5;
+    --c-flow: #199e70;
+    --c-temp: #d95926;
     --accent-ink: #86b6ef;
     --up: #e66767;
     --down: #6da7ec;
@@ -50,6 +56,9 @@
   --border: rgba(255, 255, 255, 0.10);
   --wash: rgba(255, 255, 255, 0.06);
   --series: #3987e5;
+  --c-level: #3987e5;
+  --c-flow: #199e70;
+  --c-temp: #d95926;
   --accent-ink: #86b6ef;
   --up: #e66767;
   --down: #6da7ec;
@@ -196,6 +205,7 @@ h1 { font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.01em; }
 }
 .segmented button:disabled { opacity: 0.4; cursor: default; }
 .chart { width: 100%; height: clamp(320px, 52vh, 520px); transition: opacity 0.2s; }
+.chart.multi { height: clamp(620px, 96vh, 900px); }
 .chart.loading { opacity: 0.5; }
 .hint { margin-top: 4px; }
 .window-stats {
@@ -207,6 +217,10 @@ h1 { font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.01em; }
   border-top: 1px solid var(--grid);
 }
 .window-stats dd { font-weight: 600; font-variant-numeric: tabular-nums; }
+.window-stats.multi { flex-direction: column; gap: 12px; }
+.ws-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 28px; }
+.ws-name { min-width: 160px; font-weight: 600; font-size: 0.9375rem; display: flex; align-items: center; gap: 8px; }
+.ws-name .key { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
 .window-stats dd span { font-weight: 400; color: var(--ink-2); font-size: 0.8125rem; margin-left: 4px; }
 
 .table-view { margin-top: 16px; }
@@ -276,4 +290,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   .controls { flex-direction: column; align-items: stretch; }
   .segmented { justify-content: space-between; }
   .segmented button { flex: 1; padding: 5px 6px; }
+  .ws-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 12px; }
+  .ws-name { grid-column: 1 / -1; }
+  .ws-row dd span { display: block; margin-left: 0; }
 }
