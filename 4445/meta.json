@@ -1,0 +1,13 @@
+{
+ "id": "4445",
+ "river": "Kamniška Bistrica",
+ "place": "Bišče",
+ "live_months": [
+  "2026-09",
+  "2026-10"
+ ],
+ "daily_from": "2016-01-01",
+ "daily_to": "2026-10-10",
+ "archive_to": "2024-12-31",
+ "updated": "2026-10-10T17:39Z"
+}

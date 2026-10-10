@@ -1,0 +1,13 @@
+{
+ "id": "4520",
+ "river": "Rača",
+ "place": "Podrečje",
+ "live_months": [
+  "2026-09",
+  "2026-10"
+ ],
+ "daily_from": "1977-09-22",
+ "daily_to": "2026-10-10",
+ "archive_to": "2024-12-31",
+ "updated": "2026-10-10T17:39Z"
+}
