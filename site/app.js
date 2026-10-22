@@ -234,8 +234,15 @@ function chartOption() {
     ? { left: 6, right: 46, top: 22, gap: 26, bottom: 50, slider: 20, font: 10 }
     : { left: 56, right: 16, top: n > 1 ? 34 : 28, gap: 46, bottom: 78, slider: 34, font: 12 };
   const H = $("chart").clientHeight || 480;
-  const h = (H - L.top - L.bottom - L.gap * (n - 1)) / n;
-  const panelTop = (i) => L.top + i * (h + L.gap);
+  // Stacked view on phones: water temperature gets a slim panel, the others share the rest equally.
+  const slim = (id) => compact && n > 1 && id === "temp";
+  const weight = ids.map((id) => (slim(id) ? 0.4 : 1));
+  const unit = (H - L.top - L.bottom - L.gap * (n - 1)) / weight.reduce((a, b) => a + b, 0);
+  const heights = weight.map((w) => w * unit);
+  const panelTop = (i) => L.top + heights.slice(0, i).reduce((a, b) => a + b, 0) + i * L.gap;
+  // Every panel spans the same time range, so they zoom and pan in step
+  // (the groundwater well's record is shorter and its newest readings arrive later than the river's).
+  const span = dataBounds();
   const panelIdx = ids.map((_, i) => i);
   // Panel titles: always in the stacked view, and on phones (where the unit has no room on the axis).
   const titled = compact || n > 1;
@@ -254,7 +261,7 @@ function chartOption() {
       top: panelTop(i) - (compact ? 19 : 26),
       textStyle: { fontSize: compact ? 11 : 13, fontWeight: 600, color: ink2, rich: { k: { color: color(id), fontSize: compact ? 9 : 10 } } },
     })) : [],
-    grid: ids.map((_, i) => ({ left: L.left, right: L.right, top: panelTop(i), height: h })),
+    grid: ids.map((_, i) => ({ left: L.left, right: L.right, top: panelTop(i), height: heights[i] })),
     visualMap: above != null && ids.includes(aboveId) ? [{
       type: "piecewise",
       show: false,
@@ -266,6 +273,8 @@ function chartOption() {
     xAxis: ids.map((_, i) => ({
       type: "time",
       gridIndex: i,
+      min: span?.[0],
+      max: span?.[1],
       axisLine: { lineStyle: { color: axis } },
       axisTick: { show: false },
       splitNumber: compact ? 4 : undefined,
@@ -281,7 +290,7 @@ function chartOption() {
       position: compact ? "right" : "left",
       name: titled ? "" : METRICS[id].unit,
       nameTextStyle: { color: muted, align: "right", padding: [0, 6, 0, 0] },
-      splitNumber: compact || n > 1 ? 3 : 5,
+      splitNumber: slim(id) ? 2 : compact || n > 1 ? 3 : 5,
       axisLabel: { color: muted, fontSize: L.font, margin: compact ? 6 : 8 },
       splitLine: { lineStyle: { color: grid } },
     })),
@@ -443,7 +452,11 @@ async function onWindow(s, e) {
   try {
     if ((await Promise.all(todo.map(([id, m]) => loadMonths(id, m)))).some(Boolean)) {
       buildAllSeries();
-      chart.setOption({ series: panels().map((id) => ({ data: state.series[id] })) });
+      const span = dataBounds();
+      chart.setOption({
+        xAxis: panels().map(() => ({ min: span?.[0], max: span?.[1] })),
+        series: panels().map((id) => ({ data: state.series[id] })),
+      });
       renderAbove();
       setWindow([s, e]);
     }
