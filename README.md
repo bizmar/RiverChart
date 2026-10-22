@@ -6,7 +6,9 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 
 - the current water level, flow and water temperature, with the change over the last 24 hours and ARSO's own status (normal / high / flood stage)
 - an **interactive chart**: zoom with the scroll wheel or a pinch, drag to pan, or jump to 2 days … 10 years … the whole record
-- **groundwater**: the water table at ARSO's nearest automatic well (Hrastje, ~4 km west of Zalog), in metres above sea level, with its record high and low. Around Zalog, cellars flood from rising groundwater rather than from the river itself
+- **groundwater** (the **Ground** button): around Zalog, cellars flood from rising groundwater rather than from the river itself. Two charts:
+  - **Zalog**: VOKA SNAGA's well P-1gl, about 1 km from home, daily from 2015 to June 2026, with a line at home ground level (268.0 m)
+  - **Hrastje**: ARSO's nearest automatic well (~4 km west), live, with its record high and low
 - **All** view: water level, flow, temperature and groundwater stacked on one shared time axis, so zooming, panning and the hover readout move together
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
 - a **date picker**: jump to any day and see its level, flow and temperature in one line
@@ -29,6 +31,10 @@ Every station within 10 km of Zalog (plus Moste I) is recorded automatically.
 ### Groundwater
 
 ARSO also runs about 140 automatic groundwater wells ([map and tables](https://www.arso.gov.si/vode/podatki/podzem_amp/)). The nearest to Zalog is **Hrastje (0341)** (`G85040`), about 4 km west on the same aquifer (Ljubljansko polje). It reports hourly, but ARSO usually sends the readings about once a day.
+
+**Zalog (P-1gl)** is a piezometer of JP VOKA SNAGA, the Ljubljana water company, about 1 km from home. Its daily levels for 2015 to June 2026 come from the open dataset [Groundwater-Level Monitoring Data from the Ljubljansko Barje and Ljubljansko Polje Piezometer Networks](https://zenodo.org/records/21789430) (Bračič Železnik, Čenčur Curk, Torkar; CC BY 4.0), imported once by `scripts/voka.py`. It is not updated live. Its well top (268.21 m) is at about the height of the ground at Zalog, so its levels can be compared with home ground level directly: the highest since 2015 was 266.96 m on 6 August 2023, about 1 m below it. Home ground level (268.0 m, `HOME_GROUND` in `scripts/update.py`) is from ARSO's LiDAR terrain model, converted to SVS2000, ±0.15 m. The dataset does not say which height system it uses, so allow about 10 cm either way.
+
+Hrastje's water table is about 10 m higher than Zalog's, because the ground rises towards the city, so Hrastje cannot be compared with home ground level. It is shown for its live trend: when it rises, Zalog rises too.
 
 ARSO gives the level ("Nivo") in cm relative to the top of the well. The dashboard turns it into metres above sea level with the well's height from ARSO's [station sheet](https://meteo.arso.gov.si/uploads/probase/www/hidro/watercycle/text/sl/observation_sites/piezometers_wells/85040.pdf) (287.40 m), so it can be compared with any other height, for example a cellar floor. The record high (276.63 m, October 1973) and low (271.61 m, February 1989) come from the same sheet. History starts when this project began recording the well. ARSO's groundwater archive (`hidarhiv/pod_arhiv_tab.php`) could add older years once its archive site is back up. The "Stations nearby" section on the dashboard lists everything else ARSO publishes, with distances worked out from ARSO's coordinates.
 
@@ -65,6 +71,7 @@ stations.json               all ARSO stations + latest reading, nearest first
 <id>/daily.csv              date,level,flow,temp,src  (src a = ARSO archive, m = mean of live data)
 <id>/live/YYYY-MM.csv       time (UTC),level,flow,temp  - measured readings, 10-60 min apart
 G85040/...                  the groundwater well, same layout (level = ARSO's "Nivo", hourly)
+VOKA-P-1gl/daily.csv        the Zalog well, daily, level in m above sea level (src v = VOKA SNAGA)
 ```
 
 Units: level in cm (on the gauge's own scale, not above sea level), flow in m³/s, temperature in °C. Groundwater level in cm relative to the well top, as ARSO publishes it; `stations.json` also gives the latest value in metres above sea level.

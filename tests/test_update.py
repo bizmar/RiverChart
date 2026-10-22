@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import arso  # noqa: E402
 import update  # noqa: E402
+import voka  # noqa: E402
 
 XML = """<?xml version="1.0" encoding="UTF-8"?>
 <arsopodatki verzija="1.4">
@@ -148,12 +149,61 @@ class WaybackTests(unittest.TestCase):
             self.assertIn("could not list copies", lines[0])
 
 
+def make_xlsx(rows):
+    """A minimal workbook like VOKA's: dates as shared strings, levels as numbers."""
+    import io
+    import zipfile
+    strings, xml_rows = [], []
+    for i, row in enumerate(rows, 1):
+        cells = []
+        for j, v in enumerate(row):
+            ref = f"{'ABCDE'[j]}{i}"
+            if isinstance(v, str):
+                strings.append(v)
+                cells.append(f'<c r="{ref}" t="s"><v>{len(strings) - 1}</v></c>')
+            elif v is not None:
+                cells.append(f'<c r="{ref}"><v>{v}</v></c>')
+        xml_rows.append(f'<row r="{i}">{"".join(cells)}</row>')
+    ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("xl/sharedStrings.xml", f'<sst {ns}>' + "".join(f"<si><t>{t}</t></si>" for t in strings) + "</sst>")
+        z.writestr("xl/worksheets/sheet1.xml", f'<worksheet {ns}><sheetData>{"".join(xml_rows)}</sheetData></worksheet>')
+    return buf.getvalue()
+
+
+VOKA_ROWS = [
+    ["date", "measured data", "groundwater level", '"0" point', "measuring probe"],
+    ["01.01.2015 00:00:00", 263.85, 263.85, None, None],
+    ["06.08.2023 00:00:00", 1.25, 266.96000000000004, 268.21, "10 - GSR"],
+    ["02.06.2026 00:00:00", 5.06, 263.15, 268.21, None],
+]
+
+
+def voka_zip():
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(update.ZALOG_WELL["member"], make_xlsx(VOKA_ROWS))
+    return buf.getvalue()
+
+
+class VokaTests(unittest.TestCase):
+    def test_read_workbook(self):
+        rows = voka.parse_levels(voka.read_xlsx_rows(make_xlsx(VOKA_ROWS)))
+        self.assertEqual(rows, [(date(2015, 1, 1), 263.85), (date(2023, 8, 6), 266.96), (date(2026, 6, 2), 263.15)])
+
+
 class EndToEndTests(unittest.TestCase):
     def fake_fetch(self, url, params=None, **kw):
         if url == arso.XML_URL:
             return XML
         if "/podzem_amp/" in url:
             return GROUNDWATER_TABLE.encode()
+        if url == voka.ZIP_URL:
+            self.zip_downloads = getattr(self, "zip_downloads", 0) + 1
+            return voka_zip()
         if "_t_" in url:
             return TABLE.encode()
         if url == arso.ARCHIVE_URL:
@@ -196,6 +246,15 @@ class EndToEndTests(unittest.TestCase):
                 self.assertEqual([r["level"] for r in csv.DictReader(f)], ["-1449", "-1448"])
             with (root / "G85040" / "daily.csv").open() as f:
                 self.assertEqual(next(csv.DictReader(f))["level"], "-1448.5")
+
+            # Zalog well: imported once, levels kept to the centimetre.
+            self.assertEqual(self.zip_downloads, 1)
+            z = stations["groundwater_zalog"]
+            self.assertEqual((z["first"], z["last"], z["highest"]),
+                             ("2015-01-01", {"date": "2026-06-02", "value": 263.15}, {"date": "2023-08-06", "value": 266.96}))
+            with (root / "VOKA-P-1gl" / "daily.csv").open() as f:
+                self.assertEqual([(r["level"], r["src"]) for r in csv.DictReader(f)][1], ("266.96", "v"))
+            self.assertEqual(stations["home"]["ground"], 268.0)
 
     def test_groundwater_failure_does_not_fail_the_run(self):
         def fetch(url, params=None, **kw):

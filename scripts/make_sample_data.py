@@ -97,9 +97,26 @@ def main(out: Path) -> None:
                    "record_low": {"value": 271.61, "date": "1989-02-24"}, "dist_km": 4.07,
                    "time": last_t, "level": round(287.40 + float(last_v) / 100, 2), "temp": 12.4}
 
+    # VOKA SNAGA's Zalog well: daily metres above sea level, a fixed release that ends a few months ago.
+    d = out / "VOKA-P-1gl"
+    d.mkdir(parents=True, exist_ok=True)
+    rows, day, end = ["date,level,flow,temp,src"], datetime(2015, 1, 1, tzinfo=timezone.utc), now - timedelta(days=140)
+    while day < end:
+        rows.append(f"{day:%Y-%m-%d},{263.6 + (gw_level(day) + 1450) / 120 * 0.9:.2f},,,v")
+        day += timedelta(days=1)
+    (d / "daily.csv").write_text("\n".join(rows) + "\n")
+    (d / "meta.json").write_text(json.dumps({"id": "VOKA-P-1gl", "river": "Groundwater", "place": "Zalog (P-1gl)",
+                                             "live_months": [], "daily_from": "2015-01-01"}))
+    levels = [(r[:10], float(r.split(",")[1])) for r in rows[1:]]
+    hi, lo = max(levels, key=lambda x: x[1]), min(levels, key=lambda x: x[1])
+    zalog = {"id": "VOKA-P-1gl", "name": "Zalog (P-1gl)", "operator": "JP VOKA SNAGA", "lat": 46.06993, "lon": 14.62638,
+             "well_top": 268.21, "source": "https://zenodo.org/records/21789430", "license": "CC BY 4.0", "dist_km": 0.89,
+             "first": levels[0][0], "last": {"date": levels[-1][0], "value": levels[-1][1]},
+             "highest": {"date": hi[0], "value": hi[1]}, "lowest": {"date": lo[0], "value": lo[1]}}
+
     (out / "stations.json").write_text(json.dumps({
-        "generated": now.strftime("%Y-%m-%dT%H:%MZ"), "home": {"name": "Zalog", "lat": 46.07, "lon": 14.615},
-        "default": "5078", "radius_km": 10, "groundwater": groundwater, "stations": catalogue}, ensure_ascii=False, indent=1))
+        "generated": now.strftime("%Y-%m-%dT%H:%MZ"), "home": {"name": "Zalog", "lat": 46.07, "lon": 14.615, "ground": 268.0},
+        "default": "5078", "radius_km": 10, "groundwater": groundwater, "groundwater_zalog": zalog, "stations": catalogue}, ensure_ascii=False, indent=1))
     print(f"Sample data written to {out}")
 
 

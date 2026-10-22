@@ -8,6 +8,7 @@ The store is a plain folder of CSV/JSON files that the dashboard reads directly:
     <id>/daily.csv             one row per day (validated archive + daily means of live data)
     <id>/live/<YYYY-MM>.csv    measured readings (10-60 min apart), times in UTC
     G<id>/...                  the same for the groundwater well (level = ARSO's "Nivo", cm below the well top)
+    VOKA-<id>/daily.csv        VOKA SNAGA's daily groundwater levels at Zalog (m above sea level), imported once
 
 Run regularly (GitHub Actions does it every 30 minutes):
 
@@ -29,9 +30,13 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import arso
+import voka
 
 # Zalog, Ljubljana - where the Ljubljanica flows into the Sava.
 HOME = {"name": "Zalog", "lat": 46.0700, "lon": 14.6150}
+# Ground level at home, in metres above sea level (SVS2000), from ARSO's LiDAR terrain model (about +/- 0.15 m).
+# Drawn on the Zalog groundwater chart: groundwater above it would be at the surface.
+HOME_GROUND = 268.0
 # Stations within this distance get their full history stored.
 RADIUS_KM = 10
 # Always tracked, whatever the radius: Ljubljanica at Moste I, the last gauge before Zalog.
@@ -53,6 +58,21 @@ GROUNDWATER = {
     "record_low": {"value": 271.61, "date": "1989-02-24"},
 }
 
+# Groundwater at Zalog itself: JP VOKA SNAGA's piezometer P-1gl, about 1 km from home, daily since 2015.
+# Its well top is at about the height of the ground around Zalog, so its levels compare directly with HOME_GROUND
+# (Hrastje, 4 km west, sits about 10 m higher). A fixed release on Zenodo (CC BY 4.0), imported once.
+ZALOG_WELL = {
+    "id": "VOKA-P-1gl",
+    "name": "Zalog (P-1gl)",
+    "operator": "JP VOKA SNAGA",
+    "lat": 46.06993,
+    "lon": 14.62638,
+    "well_top": 268.21,
+    "source": "https://zenodo.org/records/21789430",
+    "license": "CC BY 4.0",
+    "member": "data/ljpolje/ljpolje_P-1gl_groundwater-level_2015-2026.xlsx",
+}
+
 DIGITS = {"level": 1, "flow": 3, "temp": 1}
 
 
@@ -66,10 +86,10 @@ def distance_km(lat1, lon1, lat2, lon2) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
-def fmt(value: float | None, field: str) -> str:
+def fmt(value: float | None, field: str, digits: dict = DIGITS) -> str:
     if value is None:
         return ""
-    s = f"{value:.{DIGITS[field]}f}"
+    s = f"{value:.{digits[field]}f}"
     return s.rstrip("0").rstrip(".") if "." in s else s
 
 
@@ -110,13 +130,14 @@ def write_json(path: Path, data) -> None:
 # --------------------------------------------------------------------------- store
 
 LIVE_COLUMNS = ["time", "level", "flow", "temp"]
-DAILY_COLUMNS = ["date", "level", "flow", "temp", "src"]  # src: a = ARSO archive, m = mean of live data
+DAILY_COLUMNS = ["date", "level", "flow", "temp", "src"]  # src: a = ARSO archive, m = mean of live data, v = VOKA SNAGA
 
 
 class StationStore:
-    def __init__(self, root: Path, station_id: str):
+    def __init__(self, root: Path, station_id: str, digits: dict = DIGITS):
         self.id = station_id
         self.dir = root / station_id
+        self.digits = digits
         self._months: dict[str, dict] = {}
         self.touched_months: set[str] = set()
         self.touched_days: set[date] = set()
@@ -134,9 +155,9 @@ class StationStore:
             month = self.month(key[:7])
             is_new = key not in month
             row = month.setdefault(key, {"time": key})
-            changed = is_new or any(row.get(f) != fmt(v, f) for f, v in values.items())
+            changed = is_new or any(row.get(f) != fmt(v, f, self.digits) for f, v in values.items())
             for f, v in values.items():
-                row[f] = fmt(v, f)
+                row[f] = fmt(v, f, self.digits)
             if changed:
                 added += 1
                 self.touched_months.add(key[:7])
@@ -160,10 +181,10 @@ class StationStore:
             self._daily = read_table(self.dir / "daily.csv")
         return self._daily
 
-    def add_archive(self, rows: list[tuple[date, dict]]) -> None:
+    def add_archive(self, rows: list[tuple[date, dict]], src: str = "a") -> None:
         daily = self.daily()
         for d, values in rows:
-            daily[d.isoformat()] = {"date": d.isoformat(), "src": "a", **{f: fmt(v, f) for f, v in values.items()}}
+            daily[d.isoformat()] = {"date": d.isoformat(), "src": src, **{f: fmt(v, f, self.digits) for f, v in values.items()}}
 
     def recompute_daily_means(self) -> None:
         """Turn live readings into daily means for days the archive does not cover yet."""
@@ -183,7 +204,7 @@ class StationStore:
                                 sums[f] += float(row[f])
                                 counts[f] += 1
             if counts:
-                daily[key] = {"date": key, "src": "m", **{f: fmt(sums[f] / counts[f], f) for f in counts}}
+                daily[key] = {"date": key, "src": "m", **{f: fmt(sums[f] / counts[f], f, self.digits) for f in counts}}
 
     # save -----------------------------------------------------------------
     def save(self, station: dict) -> None:
@@ -291,6 +312,36 @@ def update_groundwater(root: Path, log) -> dict:
     }
 
 
+def zalog_well(root: Path, log) -> dict | None:
+    """Import VOKA SNAGA's Zalog well once, and return its entry for stations.json."""
+    w = ZALOG_WELL
+    store = StationStore(root, w["id"], digits={**DIGITS, "level": 2})
+    if not (store.dir / "daily.csv").exists():
+        log(f"{w['id']} groundwater - {w['name']}: importing from {w['source']}")
+        try:
+            rows = voka.fetch_well(w["member"])
+        except Exception as e:  # noqa: BLE001 - try again on the next run
+            log(f"    import failed: {e}")
+            return None
+        log(f"    {len(rows)} days, {rows[0][0]} .. {rows[-1][0]}" if rows else "    no rows")
+        if not rows:
+            return None
+        store.add_archive([(d, {"level": v}) for d, v in rows], src="v")
+        store.save({"river": "Groundwater", "place": w["name"]})
+    days = [(k, float(r["level"])) for k, r in sorted(store.daily().items()) if r.get("level")]
+    if not days:
+        return None
+    hi, lo = max(days, key=lambda x: x[1]), min(days, key=lambda x: x[1])
+    return {
+        **{k: w[k] for k in ("id", "name", "operator", "lat", "lon", "well_top", "source", "license")},
+        "dist_km": round(distance_km(HOME["lat"], HOME["lon"], w["lat"], w["lon"]), 2),
+        "first": days[0][0],
+        "last": {"date": days[-1][0], "value": days[-1][1]},
+        "highest": {"date": hi[0], "value": hi[1]},
+        "lowest": {"date": lo[0], "value": lo[1]},
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--store", type=Path, default=Path("store"), help="data folder (default: ./store)")
@@ -352,13 +403,15 @@ def main() -> int:
         store.save(st)
 
     groundwater = update_groundwater(args.store, log)
+    zalog = zalog_well(args.store, log)
 
     write_json(args.store / "stations.json", {
         "generated": iso(datetime.now(timezone.utc)),
-        "home": HOME,
+        "home": {**HOME, "ground": HOME_GROUND},
         "default": DEFAULT_STATION,
         "radius_km": RADIUS_KM,
         "groundwater": groundwater,
+        "groundwater_zalog": zalog,
         "stations": [
             {
                 "id": s["id"],

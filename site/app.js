@@ -8,10 +8,14 @@ const METRICS = {
   level: { label: "Water level", short: "Level", unit: "cm", digits: 0, color: "--c-level" },
   flow: { label: "Flow", short: "Flow", unit: "m³/s", digits: 1, color: "--c-flow" },
   temp: { label: "Water temperature", short: "Temperature", unit: "°C", digits: 1, color: "--c-temp" },
-  // From the nearest groundwater well, whichever river station is picked.
-  ground: { label: "Groundwater", short: "Groundwater", button: "Ground", unit: "m a.s.l.", digits: 2, color: "--c-ground" },
+  // Groundwater, whichever river station is picked: VOKA SNAGA's well at Zalog (daily, a fixed release up to mid-2026)
+  // and ARSO's well at Hrastje (hourly, live).
+  zalog: { label: "Groundwater at Zalog", short: "Zalog", unit: "m a.s.l.", digits: 2, color: "--c-zalog" },
+  hrastje: { label: "Groundwater at Hrastje", short: "Hrastje", unit: "m a.s.l.", digits: 2, color: "--c-ground" },
 };
 const RIVER = ["level", "flow", "temp"];
+const WELLS = ["zalog", "hrastje"];
+const GROUND = "ground"; // the "Ground" choice: both groundwater panels
 const RANGES = [
   { id: "2d", label: "2 d", title: "Last 2 days", days: 2 },
   { id: "7d", label: "7 d", title: "Last week", days: 7 },
@@ -32,7 +36,9 @@ const state = {
   window: [0, 0],
   picked: null, // a day chosen with the date picker, "YYYY-MM-DD"
   above: {}, // "times above" values per measurement, e.g. { level: 150 }
-  gw: null, // the groundwater well from stations.json
+  gw: null, // ARSO's Hrastje well from stations.json
+  zalog: null, // VOKA SNAGA's Zalog well from stations.json
+  home: null, // { ground } - ground level at home, m a.s.l.
 };
 
 const $ = (id) => document.getElementById(id);
@@ -155,16 +161,18 @@ async function loadMonths(id, months) {
   return todo.length > 0;
 }
 
-// Where a measurement's data lives: the groundwater well, or the picked river station.
-const sourceId = (metric) => (metric === "ground" ? state.gw?.id : state.station);
+// Where a measurement's data lives: one of the groundwater wells, or the picked river station.
+const sourceId = (metric) => ({ hrastje: state.gw?.id, zalog: state.zalog?.id })[metric] ?? state.station;
 // ARSO's well readings are cm relative to the well top; shown as metres above sea level.
 const gwMetres = (cm) => Math.round((state.gw.datum + cm / 100) * 100) / 100;
 
 function seriesFor(id) {
-  if (id !== "ground") return buildPoints(state.cache[state.station], id);
-  const c = state.cache[state.gw?.id];
+  if (!WELLS.includes(id)) return buildPoints(state.cache[state.station], id);
+  const c = state.cache[sourceId(id)];
   if (!c?.meta) return [];
-  return buildPoints(c, "level").map((p) => (p[1] == null ? p : [p[0], gwMetres(p[1]), ...p.slice(2)]));
+  const pts = buildPoints(c, "level");
+  // Zalog is stored in metres already; Hrastje as ARSO publishes it.
+  return id === "zalog" ? pts : pts.map((p) => (p[1] == null ? p : [p[0], gwMetres(p[1]), ...p.slice(2)]));
 }
 
 // One line: measured readings where they are loaded, daily means (ARSO's archive or our own) for every other day.
@@ -194,17 +202,23 @@ const ALL = "all";
 let chart;
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-// Measurements this station has any data for, plus the groundwater well when it has data.
+// Measurements this station has any data for, plus the groundwater wells that have data.
 function available() {
   const st = state.byId[state.station];
   const c = state.cache[state.station];
   const live = c ? [...c.live.values()].flat() : [];
   const has = RIVER.filter((k) => st?.[k] != null || c?.daily?.some((d) => d[k] != null) || live.some((r) => r[k] != null));
-  const g = state.cache[state.gw?.id];
-  if (g?.meta && (g.daily.some((d) => d.level != null) || [...g.live.values()].flat().some((r) => r.level != null))) has.push("ground");
+  for (const w of WELLS) {
+    const g = state.cache[sourceId(w)];
+    if (g?.meta && (g.daily.some((d) => d.level != null) || [...g.live.values()].flat().some((r) => r.level != null))) has.push(w);
+  }
   return has;
 }
-const panels = () => (state.metric === ALL ? available() : [state.metric]);
+function panels() {
+  if (state.metric === ALL) return available();
+  if (state.metric === GROUND) return available().filter((id) => WELLS.includes(id));
+  return [state.metric];
+}
 // Phone layout: TradingView-style dense chart with the value scale on the right.
 const isCompact = () => matchMedia("(max-width: 640px)").matches;
 
@@ -220,8 +234,7 @@ function buildAllSeries() {
   state.series = Object.fromEntries(panels().map((id) => [id, seriesFor(id)]));
 }
 
-// Panel title: the groundwater panel says where it is measured, as it is not the picked station.
-const panelTitle = (id) => (id === "ground" ? `Groundwater at ${state.gw.name.replace(/\s*\(.*\)$/, "")}` : METRICS[id].label);
+const panelTitle = (id) => METRICS[id].label;
 
 function chartOption() {
   const ids = panels();
@@ -250,6 +263,8 @@ function chartOption() {
   const aboveId = aboveMetric();
   const above = state.above[aboveId];
   const alert = css("--critical");
+  // Values a panel's scale must include: the "times above" value, and home ground level on the Zalog panel.
+  const mustShow = (id) => [id === aboveId ? above : null, id === "zalog" ? state.home?.ground : null].filter((v) => v != null);
   const lastPoint = (id) => { const p = state.series[id]; for (let i = p.length - 1; i >= 0; i--) if (p[i][1] != null) return p[i]; return null; };
   return {
     animation: false,
@@ -261,7 +276,7 @@ function chartOption() {
       top: panelTop(i) - (compact ? 19 : 26),
       textStyle: { fontSize: compact ? 11 : 13, fontWeight: 600, color: ink2, rich: { k: { color: color(id), fontSize: compact ? 9 : 10 } } },
     })) : [],
-    grid: ids.map((_, i) => ({ left: L.left, right: L.right, top: panelTop(i), height: heights[i] })),
+    grid: (panelBoxes = ids.map((_, i) => ({ left: L.left, right: L.right, top: panelTop(i), height: heights[i] }))),
     visualMap: above != null && ids.includes(aboveId) ? [{
       type: "piecewise",
       show: false,
@@ -285,8 +300,9 @@ function chartOption() {
       type: "value",
       gridIndex: i,
       scale: id !== "flow",
-      min: id === "flow" ? 0 : id === aboveId && above != null ? (v) => Math.min(v.min, above) : undefined,
-      max: id === aboveId && above != null ? (v) => Math.max(v.max, above) : undefined,
+      min: id === "flow" ? 0 : mustShow(id).length ? (v) => Math.min(v.min, ...mustShow(id)) : undefined,
+      // A little headroom over home ground level, so its label stays inside the panel.
+      max: mustShow(id).length ? (v) => Math.max(v.max, ...mustShow(id).map((x) => (x === state.home?.ground ? x + 0.3 : x))) : undefined,
       position: compact ? "right" : "left",
       name: titled ? "" : METRICS[id].unit,
       nameTextStyle: { color: muted, align: "right", padding: [0, 6, 0, 0] },
@@ -375,8 +391,16 @@ function panelLines(id, compact, last) {
       label: { position: "end", formatter: fmtVal(last[1], id), backgroundColor: color, color: inkOn(color), padding: [2, 4], borderRadius: 2, fontSize: 10, fontWeight: 600 },
     });
   }
-  // The well's record high and low (shown when the view reaches them, e.g. with a "times above" value).
-  if (id === "ground" && state.gw) {
+  // Home ground level: groundwater above this line would be at the surface.
+  if (id === "zalog" && state.home?.ground != null) {
+    data.push({
+      yAxis: state.home.ground,
+      lineStyle: { color: css("--ink"), type: "solid", width: 1.5, opacity: 0.75 },
+      label: { position: "insideEndTop", formatter: `your ground ${fmtVal(state.home.ground, id)} m`, color: css("--ink"), fontSize: compact ? 10 : 11, fontWeight: 600 },
+    });
+  }
+  // The Hrastje well's record high and low (shown when the view reaches them, e.g. with a "times above" value).
+  if (id === "hrastje" && state.gw) {
     for (const [rec, word] of [[state.gw.record_high, "record high"], [state.gw.record_low, "record low"]]) {
       data.push({
         yAxis: rec.value,
@@ -443,6 +467,7 @@ let lazyBusy = false;
 async function onWindow(s, e) {
   state.window = [s, e];
   renderWindowStats();
+  renderEmptyNotes();
   if ($("table").closest("details").open) renderTable();
   // Zoomed into an older stretch: fetch the measured months it covers (river station and groundwater well).
   if (lazyBusy || e - s > 120 * DAY) return;
@@ -478,6 +503,28 @@ function missingMonths(id, s, e) {
   const first = months.indexOf(want[0]);
   const loadedFirst = Math.min(...[...c.live.keys()].map((m) => months.indexOf(m)));
   return months.slice(first, Math.max(loadedFirst, first + 1));
+}
+
+// A note inside any panel with nothing to show in the visible window (e.g. after VOKA's Zalog release ends).
+let panelBoxes = [];
+function renderEmptyNotes() {
+  const ids = panels();
+  const graphic = ids.map((id, i) => {
+    const box = panelBoxes[i];
+    if (!box || ids.length < 2 || visiblePoints(id).length) return { id: `empty-${i}`, type: "text", invisible: true, style: { text: "" } };
+    const pts = (state.series[id] ?? []).filter((p) => p[1] != null);
+    const until = pts.length && pts[pts.length - 1][0] < state.window[0] ? ` · data ends ${shortDayFmt.format(pts[pts.length - 1][0])}` : "";
+    return {
+      id: `empty-${i}`,
+      type: "text",
+      invisible: false,
+      left: "center",
+      top: box.top + box.height / 2 - 8,
+      silent: true,
+      style: { text: `No ${METRICS[id].short} data in this period${until}`, fill: css("--muted"), font: `13px ${css("--font")}` },
+    };
+  });
+  chart.setOption({ graphic });
 }
 
 function visiblePoints(id) {
@@ -638,25 +685,24 @@ function renderDayReadout() {
   const box = $("day-readout");
   box.replaceChildren();
   box.hidden = !state.picked;
-  // Groundwater alone: the well's day. Otherwise the river station's day, plus the well in the stacked view.
-  const groundOnly = state.metric === "ground";
-  const c = state.cache[groundOnly ? state.gw?.id : state.station];
-  if (!state.picked || !c?.daily) return;
+  if (!state.picked) return;
+  // One river measurement: all three of the station's values. Stacked or groundwater view: what is shown.
+  const ids = state.metric === ALL || state.metric === GROUND ? panels() : RIVER;
+  const dayRow = (id) => state.cache[sourceId(id)]?.daily?.find((d) => d.date === state.picked);
+  const value = (id, row) => (id === "hrastje" ? (row.level == null ? null : gwMetres(row.level)) : id === "zalog" ? row.level : row[id]);
+  const vals = ids.map((id) => [id, dayRow(id)]).filter(([id, row]) => row && value(id, row) != null);
   box.append(el("b", null, dayFmt.format(dayBounds(state.picked)[0])), ": ");
-  const row = c.daily.find((d) => d.date === state.picked);
-  const vals = row ? RIVER.filter((id) => !groundOnly && row[id] != null).map((id) => [id, row[id]]) : [];
-  const gwRow = panels().includes("ground") ? state.cache[state.gw?.id]?.daily?.find((d) => d.date === state.picked) : null;
-  if (gwRow?.level != null) vals.push(["ground", gwMetres(gwRow.level)]);
   if (!vals.length) {
-    box.append(noDataReason(c, state.picked));
+    const c = state.cache[sourceId(ids[0])];
+    box.append(c?.meta ? noDataReason(c, state.picked) : "no data.");
     return;
   }
-  vals.forEach(([id, v], i) => {
+  vals.forEach(([id, row], i) => {
     if (i) box.append(" · ");
-    box.append(`${METRICS[id].short} `, el("b", null, `${fmtVal(v, id)} ${METRICS[id].unit}`));
+    box.append(`${METRICS[id].short} `, el("b", null, `${fmtVal(value(id, row), id)} ${METRICS[id].unit}`));
   });
-  const src = (groundOnly ? gwRow : row)?.src;
-  box.append(el("span", "note", src === "a" ? " · daily mean, validated by ARSO" : " · daily mean of the measured readings"));
+  const src = vals[0][1].src;
+  box.append(el("span", "note", { a: " · daily mean, validated by ARSO", v: " · daily value from VOKA SNAGA" }[src] ?? " · daily mean of the measured readings"));
 }
 
 function noDataReason(c, iso) {
@@ -673,6 +719,7 @@ function noDataReason(c, iso) {
 
 // The measurement "times above" works on: the one shown, or the water level in the stacked view.
 function aboveMetric() {
+  if (state.metric === GROUND) return panels().includes("zalog") ? "zalog" : panels()[0] ?? "hrastje";
   if (state.metric !== ALL) return state.metric;
   const has = panels();
   return has.includes("level") ? "level" : has[0];
@@ -712,7 +759,7 @@ function renderAbove() {
   const id = aboveMetric();
   const m = METRICS[id];
   const x = state.above[id];
-  $("above-what").textContent = m.label.toLowerCase();
+  $("above-what").textContent = m.label[0].toLowerCase() + m.label.slice(1);
   $("above-unit").textContent = m.unit;
   if (document.activeElement !== $("above")) $("above").value = x ?? "";
   $("above-clear").hidden = x == null;
@@ -722,7 +769,11 @@ function renderAbove() {
   dl.replaceChildren();
   const stages = id === "flow" ? state.byId[state.station]?.thresholds?.flow : null;
   const suggest = Object.entries(stages ?? {}).map(([stage, v]) => [v, `Flood stage ${stage}`]);
-  if (id === "ground" && state.gw) {
+  if (id === "zalog" && state.zalog) {
+    if (state.home?.ground != null) suggest.push([state.home.ground, "Your ground level"]);
+    suggest.push([state.zalog.highest.value, `Highest since ${state.zalog.first.slice(0, 4)} (${state.zalog.highest.date.slice(0, 4)})`]);
+  }
+  if (id === "hrastje" && state.gw) {
     suggest.push([state.gw.record_high.value, `Record high (${state.gw.record_high.date.slice(0, 4)})`]);
   }
   for (const [v, label] of suggest) {
@@ -797,14 +848,14 @@ function renderControls() {
   const metrics = $("metrics");
   metrics.replaceChildren();
   const has = available();
-  const options = [...Object.entries(METRICS).map(([id, m]) => [id, m.button ?? m.short, id === "ground" && state.gw ? panelTitle(id) : m.label]), [ALL, "All", "Everything, stacked"]];
+  const options = [...RIVER.map((id) => [id, METRICS[id].short, METRICS[id].label]), [GROUND, "Ground", "Groundwater at Zalog and Hrastje"], [ALL, "All", "Everything, stacked"]];
   for (const [id, label, title] of options) {
     const b = el("button", null, label);
     b.type = "button";
     b.title = title;
     b.setAttribute("role", "radio");
     b.setAttribute("aria-checked", String(id === state.metric));
-    b.disabled = id === ALL ? has.length < 2 : !has.includes(id);
+    b.disabled = id === ALL ? has.length < 2 : id === GROUND ? !has.some((x) => WELLS.includes(x)) : !has.includes(id);
     b.onclick = () => { state.metric = id; update(true); };
     metrics.append(b);
   }
@@ -848,7 +899,7 @@ function renderHero() {
   const st = state.byId[state.station];
   // In the stacked view the headline number is the first shown measurement (normally the level).
   const hm = state.metric === ALL ? panels()[0] ?? "level" : state.metric;
-  if (hm === "ground") return renderGroundHero();
+  if (hm === GROUND) return renderGroundHero();
   const m = METRICS[hm];
   $("hero-label").textContent = `${m.label} · ${st.river}, ${st.place}`;
   $("hero-value").textContent = fmtVal(st[hm], hm);
@@ -900,26 +951,27 @@ function renderTrend(box, live, metric) {
   if (Math.abs(before[0] - target) >= 2 * 3600000) return;
   const d = Math.round((lastV - before[1]) * 100) / 100;
   // A change in groundwater is plain metres, not metres above sea level.
-  const unit = metric === "ground" ? "m" : METRICS[metric].unit;
+  const unit = WELLS.includes(metric) ? "m" : METRICS[metric].unit;
   if (d === 0) box.textContent = "No change in the last 24 h";
   else box.append(el("span", d > 0 ? "up" : "down", `${d > 0 ? "▲ +" : "▼ −"}${fmtVal(Math.abs(d), metric)} ${unit}`), " in the last 24 h");
 }
 
-// Headline for the groundwater well: where the water table is, and how far below its record high.
+// Headline for groundwater: the live Hrastje well, and what the Zalog well says about home.
 function renderGroundHero() {
   const gw = state.gw;
-  const m = METRICS.ground;
-  $("hero-label").textContent = `Groundwater · ${gw.name}, ${distLabel(gw)}`;
-  $("hero-value").textContent = fmtVal(gw.level, "ground");
+  if (!gw) return;
+  const m = METRICS.hrastje;
+  $("hero-label").textContent = `Groundwater · ${gw.name}, ${distLabel(gw)} · live`;
+  $("hero-value").textContent = fmtVal(gw.level, "hrastje");
   $("hero-unit").textContent = gw.level == null ? "" : m.unit;
   const trend = $("hero-trend");
   const live = liveRows(state.cache[gw.id]).filter((r) => r.level != null).map((r) => [r.t, gwMetres(r.level)]);
-  renderTrend(trend, live, "ground");
+  renderTrend(trend, live, "hrastje");
   if (gw.level == null) trend.textContent = "No recent reading from ARSO. The chart shows the recorded history.";
 
   const stats = $("hero-stats");
   stats.replaceChildren();
-  const metres = (v) => { const dd = el("dd", null, fmtVal(v, "ground")); dd.append(el("small", null, "m")); return dd; };
+  const metres = (v) => { const dd = el("dd", null, fmtVal(v, "hrastje")); dd.append(el("small", null, "m")); return dd; };
   if (gw.level != null) stats.append(wrapStat("Below ground at the well", metres(gw.surface - gw.level)));
   for (const [label, rec] of [["Record high", gw.record_high], ["Record low", gw.record_low]]) {
     const dd = metres(rec.value);
@@ -935,14 +987,20 @@ function renderGroundHero() {
 
   const status = $("status");
   status.replaceChildren();
-  status.hidden = gw.level == null;
   if (gw.level != null) {
     const below = gw.record_high.value - gw.level;
     status.append(el("span", null, below > 0
-      ? `${fmtVal(below, "ground")} m below the record high (${gw.record_high.date.slice(0, 4)}).`
-      : `At or above the record high (${gw.record_high.date.slice(0, 4)}).`));
-    status.append(el("span", "thresholds", `${gw.aquifer} · ARSO sends this well's readings about once a day.`));
+      ? `Hrastje: ${fmtVal(below, "hrastje")} m below its record high (${gw.record_high.date.slice(0, 4)}).`
+      : `Hrastje: at or above its record high (${gw.record_high.date.slice(0, 4)}).`));
   }
+  // Zalog's well top is at about home ground level, so its levels compare with home directly (Hrastje's do not).
+  const z = state.zalog, ground = state.home?.ground;
+  if (z && ground != null) {
+    const gap = ground - z.highest.value;
+    status.append(el("span", "thresholds", `Zalog: highest groundwater since ${z.first.slice(0, 4)} was ${fmtVal(z.highest.value, "zalog")} m on ${shortDayFmt.format(dayBounds(z.highest.date)[0])}, ` +
+      (gap > 0 ? `${fmtVal(gap, "zalog")} m below your ground.` : `${fmtVal(-gap, "zalog")} m above your ground.`)));
+  }
+  status.hidden = !status.childNodes.length;
 }
 
 function wrapStat(label, dd) {
@@ -954,18 +1012,21 @@ function wrapStat(label, dd) {
 function renderNearby() {
   const grid = $("nearby");
   grid.replaceChildren();
-  if (state.gw) {
-    const gw = state.gw;
+  const wells = [
+    state.zalog && [state.zalog, `VOKA SNAGA well · daily, to ${shortDayFmt.format(dayBounds(state.zalog.last.date)[0])}`, state.zalog.last.value],
+    state.gw && [state.gw, `ARSO groundwater well · ${state.gw.aquifer}`, state.gw.level],
+  ].filter(Boolean);
+  for (const [w, about, value] of wells) {
     const card = el("button", "station-card tracked");
     card.type = "button";
-    card.onclick = () => { state.metric = "ground"; update(true); window.scrollTo({ top: 0, behavior: "smooth" }); };
-    const meta = el("div", "meta", distLabel(gw));
-    meta.append(el("span", "extra", ` · groundwater well · ${gw.aquifer}`));
-    card.append(el("div", "name", `Groundwater · ${gw.name}`), meta);
+    card.onclick = () => { state.metric = GROUND; update(true); window.scrollTo({ top: 0, behavior: "smooth" }); };
+    const meta = el("div", "meta", distLabel(w));
+    meta.append(el("span", "extra", ` · ${about}`));
+    card.append(el("div", "name", `Groundwater · ${w.name}`), meta);
     const vals = el("div", "vals");
-    if (gw.level != null) {
+    if (value != null) {
       const v = el("span");
-      v.append(el("b", null, fmtVal(gw.level, "ground")), document.createTextNode(` ${METRICS.ground.unit}`));
+      v.append(el("b", null, fmtVal(value, "zalog")), document.createTextNode(" m a.s.l."));
       vals.append(v);
     }
     card.append(vals);
@@ -1005,7 +1066,7 @@ function renderNearby() {
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   if (p.get("s") && state.byId[p.get("s")]?.tracked) state.station = p.get("s");
-  if (METRICS[p.get("m")] || p.get("m") === ALL) state.metric = p.get("m");
+  if (METRICS[p.get("m")] || p.get("m") === ALL || p.get("m") === GROUND) state.metric = p.get("m");
   if (RANGES.some((r) => r.id === p.get("r"))) state.range = p.get("r");
   if (/^\d{4}-\d{2}-\d{2}$/.test(p.get("d") ?? "")) state.picked = p.get("d");
   for (const id of Object.keys(METRICS)) {
@@ -1029,10 +1090,12 @@ async function update(keepWindow = false) {
   renderStationChips();
   $("chart").classList.add("loading");
   try {
-    // The groundwater well is a bonus: the river station must load, the well may fail.
-    await Promise.all([stationData(state.station), state.gw && stationData(state.gw.id).catch(() => delete state.cache[state.gw.id])]);
+    // The groundwater wells are a bonus: the river station must load, a well may fail.
+    const well = (w) => w && stationData(w.id).catch(() => delete state.cache[w.id]);
+    await Promise.all([stationData(state.station), well(state.gw), well(state.zalog)]);
     const has = available();
-    if (state.metric === ALL ? has.length < 2 : !has.includes(state.metric)) state.metric = has[0] ?? "level";
+    const ok = state.metric === ALL ? has.length >= 2 : state.metric === GROUND ? has.some((x) => WELLS.includes(x)) : has.includes(state.metric);
+    if (!ok) state.metric = has[0] ?? "level";
     buildAllSeries();
     renderHero();
     renderControls();
@@ -1096,6 +1159,8 @@ async function init() {
   state.stations = catalogue.stations;
   state.byId = Object.fromEntries(catalogue.stations.map((s) => [s.id, s]));
   state.gw = catalogue.groundwater ?? null;
+  state.zalog = catalogue.groundwater_zalog ?? null;
+  state.home = catalogue.home ?? null;
   state.station = state.byId[catalogue.default]?.tracked ? catalogue.default : catalogue.stations.find((s) => s.tracked)?.id;
   readHash();
   const gen = Date.parse(catalogue.generated);
