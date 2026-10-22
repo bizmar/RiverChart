@@ -191,7 +191,7 @@ class StationStore:
 
 # --------------------------------------------------------------------------- jobs
 
-def backfill_archive(store: StationStore, station: dict, years: int | None, log) -> None:
+def backfill_archive(store: StationStore, station: dict, years: int | None, log, debug: bool = False) -> None:
     """Pull the validated daily archive, newest year first.
 
     years=None walks back until the record runs out; otherwise only the last N years.
@@ -200,7 +200,7 @@ def backfill_archive(store: StationStore, station: dict, years: int | None, log)
     found, empty_streak, year = False, 0, this_year
     while year >= 1900:
         try:
-            rows = arso.fetch_archive_year(station["river"], station["id"], year)
+            rows = arso.fetch_archive_year(station["river"], station["id"], year, log if debug else None)
         except Exception as e:  # noqa: BLE001 - keep going, the archive is a bonus
             log(f"    archive {year}: {e}")
             rows = []
@@ -268,7 +268,7 @@ def main() -> int:
         log(f"    {store.add_live(readings)} new/changed readings")
 
         if needs_archive or args.archive != "missing":
-            backfill_archive(store, st, {"missing": None, "full": None, "recent": 3}[args.archive], log)
+            backfill_archive(store, st, {"missing": None, "full": None, "recent": 3}[args.archive], log, args.debug)
         store.recompute_daily_means()
         store.save(st)
 

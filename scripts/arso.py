@@ -273,7 +273,7 @@ def parse_archive(text: str) -> list[tuple[date, dict]]:
     return out
 
 
-def fetch_archive_year(river: str, station_id: str, year: int) -> list[tuple[date, dict]]:
+def fetch_archive_year(river: str, station_id: str, year: int, debug_log=None) -> list[tuple[date, dict]]:
     params = {
         "p_vodotok": river,
         "p_postaja": station_id,
@@ -281,4 +281,9 @@ def fetch_archive_year(river: str, station_id: str, year: int) -> list[tuple[dat
         "b_arhiv": "Prikaži",
         "p_export": "txt",
     }
-    return parse_archive(decode(fetch(ARCHIVE_URL, params)))
+    text = decode(fetch(ARCHIVE_URL, params))
+    rows = parse_archive(text)
+    if debug_log and not rows:
+        # Shows whether ARSO has nothing for that year or sent something the parser does not understand.
+        debug_log(f"    archive {year}: no rows; ARSO sent {len(text)} chars: {text[:400]!r}")
+    return rows
