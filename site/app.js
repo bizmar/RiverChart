@@ -14,7 +14,7 @@ const METRICS = {
   hrastje: { label: "Groundwater at Hrastje", short: "Hrastje", unit: "m a.s.l.", digits: 2, color: "--c-ground" },
 };
 const RIVER = ["level", "flow", "temp"];
-const WELLS = ["zalog", "hrastje"];
+const WELLS = ["hrastje", "zalog"]; // panel order: live Hrastje first, Zalog (a fixed release) below
 const GROUND = "ground"; // the "Ground" choice: both groundwater panels
 const RANGES = [
   { id: "2d", label: "2 d", title: "Last 2 days", days: 2 },
