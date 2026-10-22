@@ -34,9 +34,9 @@ import voka
 
 # Zalog, Ljubljana - where the Ljubljanica flows into the Sava.
 HOME = {"name": "Zalog", "lat": 46.0700, "lon": 14.6150}
-# Ground level at home, in metres above sea level (SVS2000), from ARSO's LiDAR terrain model (about +/- 0.15 m).
-# Drawn on the Zalog groundwater chart: groundwater above it would be at the surface.
-HOME_GROUND = 268.0
+# The last day we have a photo of groundwater up to the house. The Zalog well's level that day is drawn on its chart
+# as the "reached the house" mark, so the comparison stays within one well and one height system.
+HOUSE_MARK_DATE = "2023-11-06"
 # Stations within this distance get their full history stored.
 RADIUS_KM = 10
 # Always tracked, whatever the radius: Ljubljanica at Moste I, the last gauge before Zalog.
@@ -59,8 +59,8 @@ GROUNDWATER = {
 }
 
 # Groundwater at Zalog itself: JP VOKA SNAGA's piezometer P-1gl, about 1 km from home, daily since 2015.
-# Its well top is at about the height of the ground around Zalog, so its levels compare directly with HOME_GROUND
-# (Hrastje, 4 km west, sits about 10 m higher). A fixed release on Zenodo (CC BY 4.0), imported once.
+# Hrastje, 4 km west, sits about 10 m higher, so only this well relates to the house. A fixed release on Zenodo
+# (CC BY 4.0), imported once.
 ZALOG_WELL = {
     "id": "VOKA-P-1gl",
     "name": "Zalog (P-1gl)",
@@ -332,6 +332,7 @@ def zalog_well(root: Path, log) -> dict | None:
     if not days:
         return None
     hi, lo = max(days, key=lambda x: x[1]), min(days, key=lambda x: x[1])
+    mark = store.daily().get(HOUSE_MARK_DATE, {}).get("level")
     return {
         **{k: w[k] for k in ("id", "name", "operator", "lat", "lon", "well_top", "source", "license")},
         "dist_km": round(distance_km(HOME["lat"], HOME["lon"], w["lat"], w["lon"]), 2),
@@ -339,6 +340,7 @@ def zalog_well(root: Path, log) -> dict | None:
         "last": {"date": days[-1][0], "value": days[-1][1]},
         "highest": {"date": hi[0], "value": hi[1]},
         "lowest": {"date": lo[0], "value": lo[1]},
+        "house_mark": {"date": HOUSE_MARK_DATE, "value": float(mark)} if mark else None,
     }
 
 
@@ -407,7 +409,7 @@ def main() -> int:
 
     write_json(args.store / "stations.json", {
         "generated": iso(datetime.now(timezone.utc)),
-        "home": {**HOME, "ground": HOME_GROUND},
+        "home": HOME,
         "default": DEFAULT_STATION,
         "radius_km": RADIUS_KM,
         "groundwater": groundwater,

@@ -38,7 +38,6 @@ const state = {
   above: {}, // "times above" values per measurement, e.g. { level: 150 }
   gw: null, // ARSO's Hrastje well from stations.json
   zalog: null, // VOKA SNAGA's Zalog well from stations.json
-  home: null, // { ground } - ground level at home, m a.s.l.
 };
 
 const $ = (id) => document.getElementById(id);
@@ -263,8 +262,9 @@ function chartOption() {
   const aboveId = aboveMetric();
   const above = state.above[aboveId];
   const alert = css("--critical");
-  // Values a panel's scale must include: the "times above" value, and home ground level on the Zalog panel.
-  const mustShow = (id) => [id === aboveId ? above : null, id === "zalog" ? state.home?.ground : null].filter((v) => v != null);
+  // Values a panel's scale must include: the "times above" value, and the house mark on the Zalog panel.
+  const mark = state.zalog?.house_mark?.value;
+  const mustShow = (id) => [id === aboveId ? above : null, id === "zalog" ? mark : null].filter((v) => v != null);
   const lastPoint = (id) => { const p = state.series[id]; for (let i = p.length - 1; i >= 0; i--) if (p[i][1] != null) return p[i]; return null; };
   return {
     animation: false,
@@ -301,8 +301,8 @@ function chartOption() {
       gridIndex: i,
       scale: id !== "flow",
       min: id === "flow" ? 0 : mustShow(id).length ? (v) => Math.min(v.min, ...mustShow(id)) : undefined,
-      // A little headroom over home ground level, so its label stays inside the panel.
-      max: mustShow(id).length ? (v) => Math.max(v.max, ...mustShow(id).map((x) => (x === state.home?.ground ? x + 0.3 : x))) : undefined,
+      // A little headroom over the house mark, so its label stays inside the panel.
+      max: mustShow(id).length ? (v) => Math.max(v.max, ...mustShow(id).map((x) => (x === mark ? x + 0.3 : x))) : undefined,
       position: compact ? "right" : "left",
       name: titled ? "" : METRICS[id].unit,
       nameTextStyle: { color: muted, align: "right", padding: [0, 6, 0, 0] },
@@ -391,12 +391,13 @@ function panelLines(id, compact, last) {
       label: { position: "end", formatter: fmtVal(last[1], id), backgroundColor: color, color: inkOn(color), padding: [2, 4], borderRadius: 2, fontSize: 10, fontWeight: 600 },
     });
   }
-  // Home ground level: groundwater above this line would be at the surface.
-  if (id === "zalog" && state.home?.ground != null) {
+  // The Zalog level on the last day groundwater was photographed up to the house.
+  const mark = state.zalog?.house_mark;
+  if (id === "zalog" && mark) {
     data.push({
-      yAxis: state.home.ground,
+      yAxis: mark.value,
       lineStyle: { color: css("--ink"), type: "solid", width: 1.5, opacity: 0.75 },
-      label: { position: "insideEndTop", formatter: `your ground ${fmtVal(state.home.ground, id)} m`, color: css("--ink"), fontSize: compact ? 10 : 11, fontWeight: 600 },
+      label: { position: "insideEndTop", formatter: `reached the house ${fmtVal(mark.value, id)} m (${shortDayFmt.format(dayBounds(mark.date)[0])})`, color: css("--ink"), fontSize: compact ? 10 : 11, fontWeight: 600 },
     });
   }
   // The Hrastje well's record high and low (shown when the view reaches them, e.g. with a "times above" value).
@@ -770,7 +771,7 @@ function renderAbove() {
   const stages = id === "flow" ? state.byId[state.station]?.thresholds?.flow : null;
   const suggest = Object.entries(stages ?? {}).map(([stage, v]) => [v, `Flood stage ${stage}`]);
   if (id === "zalog" && state.zalog) {
-    if (state.home?.ground != null) suggest.push([state.home.ground, "Your ground level"]);
+    if (state.zalog.house_mark) suggest.push([state.zalog.house_mark.value, `Reached the house (${state.zalog.house_mark.date})`]);
     suggest.push([state.zalog.highest.value, `Highest since ${state.zalog.first.slice(0, 4)} (${state.zalog.highest.date.slice(0, 4)})`]);
   }
   if (id === "hrastje" && state.gw) {
@@ -993,12 +994,13 @@ function renderGroundHero() {
       ? `Hrastje: ${fmtVal(below, "hrastje")} m below its record high (${gw.record_high.date.slice(0, 4)}).`
       : `Hrastje: at or above its record high (${gw.record_high.date.slice(0, 4)}).`));
   }
-  // Zalog's well top is at about home ground level, so its levels compare with home directly (Hrastje's do not).
-  const z = state.zalog, ground = state.home?.ground;
-  if (z && ground != null) {
-    const gap = ground - z.highest.value;
-    status.append(el("span", "thresholds", `Zalog: highest groundwater since ${z.first.slice(0, 4)} was ${fmtVal(z.highest.value, "zalog")} m on ${shortDayFmt.format(dayBounds(z.highest.date)[0])}, ` +
-      (gap > 0 ? `${fmtVal(gap, "zalog")} m below your ground.` : `${fmtVal(-gap, "zalog")} m above your ground.`)));
+  // Zalog relates to the house (Hrastje does not): its level the day groundwater reached the house, and its highest.
+  const z = state.zalog, mark = z?.house_mark;
+  if (mark) {
+    const over = z.highest.value - mark.value;
+    status.append(el("span", "thresholds", `Zalog: groundwater reached the house at ${fmtVal(mark.value, "zalog")} m on ${shortDayFmt.format(dayBounds(mark.date)[0])}. ` +
+      `Highest since ${z.first.slice(0, 4)}: ${fmtVal(z.highest.value, "zalog")} m on ${shortDayFmt.format(dayBounds(z.highest.date)[0])}` +
+      (over > 0 ? `, ${fmtVal(over, "zalog")} m above that.` : ".")));
   }
   status.hidden = !status.childNodes.length;
 }
@@ -1160,7 +1162,6 @@ async function init() {
   state.byId = Object.fromEntries(catalogue.stations.map((s) => [s.id, s]));
   state.gw = catalogue.groundwater ?? null;
   state.zalog = catalogue.groundwater_zalog ?? null;
-  state.home = catalogue.home ?? null;
   state.station = state.byId[catalogue.default]?.tracked ? catalogue.default : catalogue.stations.find((s) => s.tracked)?.id;
   readHash();
   const gen = Date.parse(catalogue.generated);

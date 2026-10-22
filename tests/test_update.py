@@ -176,6 +176,7 @@ VOKA_ROWS = [
     ["date", "measured data", "groundwater level", '"0" point', "measuring probe"],
     ["01.01.2015 00:00:00", 263.85, 263.85, None, None],
     ["06.08.2023 00:00:00", 1.25, 266.96000000000004, 268.21, "10 - GSR"],
+    ["06.11.2023 00:00:00", 1.83, 266.38, 268.21, "10 - GSR"],
     ["02.06.2026 00:00:00", 5.06, 263.15, 268.21, None],
 ]
 
@@ -192,7 +193,8 @@ def voka_zip():
 class VokaTests(unittest.TestCase):
     def test_read_workbook(self):
         rows = voka.parse_levels(voka.read_xlsx_rows(make_xlsx(VOKA_ROWS)))
-        self.assertEqual(rows, [(date(2015, 1, 1), 263.85), (date(2023, 8, 6), 266.96), (date(2026, 6, 2), 263.15)])
+        self.assertEqual(rows, [(date(2015, 1, 1), 263.85), (date(2023, 8, 6), 266.96), (date(2023, 11, 6), 266.38),
+                                (date(2026, 6, 2), 263.15)])
 
 
 class EndToEndTests(unittest.TestCase):
@@ -254,7 +256,7 @@ class EndToEndTests(unittest.TestCase):
                              ("2015-01-01", {"date": "2026-06-02", "value": 263.15}, {"date": "2023-08-06", "value": 266.96}))
             with (root / "VOKA-P-1gl" / "daily.csv").open() as f:
                 self.assertEqual([(r["level"], r["src"]) for r in csv.DictReader(f)][1], ("266.96", "v"))
-            self.assertEqual(stations["home"]["ground"], 268.0)
+            self.assertEqual(z["house_mark"], {"date": "2023-11-06", "value": 266.38})
 
     def test_groundwater_failure_does_not_fail_the_run(self):
         def fetch(url, params=None, **kw):

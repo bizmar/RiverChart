@@ -112,10 +112,11 @@ def main(out: Path) -> None:
     zalog = {"id": "VOKA-P-1gl", "name": "Zalog (P-1gl)", "operator": "JP VOKA SNAGA", "lat": 46.06993, "lon": 14.62638,
              "well_top": 268.21, "source": "https://zenodo.org/records/21789430", "license": "CC BY 4.0", "dist_km": 0.89,
              "first": levels[0][0], "last": {"date": levels[-1][0], "value": levels[-1][1]},
-             "highest": {"date": hi[0], "value": hi[1]}, "lowest": {"date": lo[0], "value": lo[1]}}
+             "highest": {"date": hi[0], "value": hi[1]}, "lowest": {"date": lo[0], "value": lo[1]},
+             "house_mark": {"date": "2023-11-06", "value": dict(levels)["2023-11-06"]}}
 
     (out / "stations.json").write_text(json.dumps({
-        "generated": now.strftime("%Y-%m-%dT%H:%MZ"), "home": {"name": "Zalog", "lat": 46.07, "lon": 14.615, "ground": 268.0},
+        "generated": now.strftime("%Y-%m-%dT%H:%MZ"), "home": {"name": "Zalog", "lat": 46.07, "lon": 14.615},
         "default": "5078", "radius_km": 10, "groundwater": groundwater, "groundwater_zalog": zalog, "stations": catalogue}, ensure_ascii=False, indent=1))
     print(f"Sample data written to {out}")
 
