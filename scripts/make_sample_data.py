@@ -113,7 +113,7 @@ def main(out: Path) -> None:
              "well_top": 268.21, "source": "https://zenodo.org/records/21789430", "license": "CC BY 4.0", "dist_km": 0.89,
              "first": levels[0][0], "last": {"date": levels[-1][0], "value": levels[-1][1]},
              "highest": {"date": hi[0], "value": hi[1]}, "lowest": {"date": lo[0], "value": lo[1]},
-             "house_mark": {"date": "2023-11-06", "value": dict(levels)["2023-11-06"]}}
+             "reference": {"date": "2023-11-06", "value": dict(levels)["2023-11-06"]}}
 
     (out / "stations.json").write_text(json.dumps({
         "generated": now.strftime("%Y-%m-%dT%H:%MZ"), "home": {"name": "Zalog", "lat": 46.07, "lon": 14.615},

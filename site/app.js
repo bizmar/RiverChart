@@ -262,8 +262,8 @@ function chartOption() {
   const aboveId = aboveMetric();
   const above = state.above[aboveId];
   const alert = css("--critical");
-  // Values a panel's scale must include: the "times above" value, and the house mark on the Zalog panel.
-  const mark = state.zalog?.house_mark?.value;
+  // Values a panel's scale must include: the "times above" value, and the reference line on the Zalog panel.
+  const mark = state.zalog?.reference?.value;
   const mustShow = (id) => [id === aboveId ? above : null, id === "zalog" ? mark : null].filter((v) => v != null);
   const lastPoint = (id) => { const p = state.series[id]; for (let i = p.length - 1; i >= 0; i--) if (p[i][1] != null) return p[i]; return null; };
   return {
@@ -301,7 +301,7 @@ function chartOption() {
       gridIndex: i,
       scale: id !== "flow",
       min: id === "flow" ? 0 : mustShow(id).length ? (v) => Math.min(v.min, ...mustShow(id)) : undefined,
-      // A little headroom over the house mark, so its label stays inside the panel.
+      // A little headroom over the reference line, so its label stays inside the panel.
       max: mustShow(id).length ? (v) => Math.max(v.max, ...mustShow(id).map((x) => (x === mark ? x + 0.3 : x))) : undefined,
       position: compact ? "right" : "left",
       name: titled ? "" : METRICS[id].unit,
@@ -391,13 +391,13 @@ function panelLines(id, compact, last) {
       label: { position: "end", formatter: fmtVal(last[1], id), backgroundColor: color, color: inkOn(color), padding: [2, 4], borderRadius: 2, fontSize: 10, fontWeight: 600 },
     });
   }
-  // The Zalog level on the last day groundwater was photographed up to the house.
-  const mark = state.zalog?.house_mark;
+  // The Zalog level on a chosen reference day.
+  const mark = state.zalog?.reference;
   if (id === "zalog" && mark) {
     data.push({
       yAxis: mark.value,
       lineStyle: { color: css("--ink"), type: "solid", width: 1.5, opacity: 0.75 },
-      label: { position: "insideEndTop", formatter: `reached the house ${fmtVal(mark.value, id)} m (${shortDayFmt.format(dayBounds(mark.date)[0])})`, color: css("--ink"), fontSize: compact ? 10 : 11, fontWeight: 600 },
+      label: { position: "insideEndTop", formatter: `reference ${fmtVal(mark.value, id)} m (${shortDayFmt.format(dayBounds(mark.date)[0])})`, color: css("--ink"), fontSize: compact ? 10 : 11, fontWeight: 600 },
     });
   }
   // The Hrastje well's record high and low (shown when the view reaches them, e.g. with a "times above" value).
@@ -771,7 +771,7 @@ function renderAbove() {
   const stages = id === "flow" ? state.byId[state.station]?.thresholds?.flow : null;
   const suggest = Object.entries(stages ?? {}).map(([stage, v]) => [v, `Flood stage ${stage}`]);
   if (id === "zalog" && state.zalog) {
-    if (state.zalog.house_mark) suggest.push([state.zalog.house_mark.value, `Reached the house (${state.zalog.house_mark.date})`]);
+    if (state.zalog.reference) suggest.push([state.zalog.reference.value, `Reference (${state.zalog.reference.date})`]);
     suggest.push([state.zalog.highest.value, `Highest since ${state.zalog.first.slice(0, 4)} (${state.zalog.highest.date.slice(0, 4)})`]);
   }
   if (id === "hrastje" && state.gw) {
@@ -957,7 +957,7 @@ function renderTrend(box, live, metric) {
   else box.append(el("span", d > 0 ? "up" : "down", `${d > 0 ? "▲ +" : "▼ −"}${fmtVal(Math.abs(d), metric)} ${unit}`), " in the last 24 h");
 }
 
-// Headline for groundwater: the live Hrastje well, and what the Zalog well says about home.
+// Headline for groundwater: the live Hrastje well, and the Zalog well's reference and record.
 function renderGroundHero() {
   const gw = state.gw;
   if (!gw) return;
@@ -994,11 +994,11 @@ function renderGroundHero() {
       ? `Hrastje: ${fmtVal(below, "hrastje")} m below its record high (${gw.record_high.date.slice(0, 4)}).`
       : `Hrastje: at or above its record high (${gw.record_high.date.slice(0, 4)}).`));
   }
-  // Zalog relates to the house (Hrastje does not): its level the day groundwater reached the house, and its highest.
-  const z = state.zalog, mark = z?.house_mark;
+  // Zalog: its level on the reference day, and its highest.
+  const z = state.zalog, mark = z?.reference;
   if (mark) {
     const over = z.highest.value - mark.value;
-    status.append(el("span", "thresholds", `Zalog: groundwater reached the house at ${fmtVal(mark.value, "zalog")} m on ${shortDayFmt.format(dayBounds(mark.date)[0])}. ` +
+    status.append(el("span", "thresholds", `Zalog: reference ${fmtVal(mark.value, "zalog")} m (${shortDayFmt.format(dayBounds(mark.date)[0])}). ` +
       `Highest since ${z.first.slice(0, 4)}: ${fmtVal(z.highest.value, "zalog")} m on ${shortDayFmt.format(dayBounds(z.highest.date)[0])}` +
       (over > 0 ? `, ${fmtVal(over, "zalog")} m above that.` : ".")));
   }

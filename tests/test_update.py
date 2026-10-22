@@ -256,7 +256,7 @@ class EndToEndTests(unittest.TestCase):
                              ("2015-01-01", {"date": "2026-06-02", "value": 263.15}, {"date": "2023-08-06", "value": 266.96}))
             with (root / "VOKA-P-1gl" / "daily.csv").open() as f:
                 self.assertEqual([(r["level"], r["src"]) for r in csv.DictReader(f)][1], ("266.96", "v"))
-            self.assertEqual(z["house_mark"], {"date": "2023-11-06", "value": 266.38})
+            self.assertEqual(z["reference"], {"date": "2023-11-06", "value": 266.38})
 
     def test_groundwater_failure_does_not_fail_the_run(self):
         def fetch(url, params=None, **kw):
