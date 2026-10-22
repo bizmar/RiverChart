@@ -201,6 +201,10 @@ def backfill_archive(store: StationStore, station: dict, years: int | None, log,
     while year >= 1900:
         try:
             rows = arso.fetch_archive_year(station["river"], station["id"], year, log if debug else None)
+        except arso.ArchiveUnavailable as e:
+            # Not "no data for this year": try again on a later run.
+            log(f"    archive: {e}; will try again on a later run")
+            return
         except Exception as e:  # noqa: BLE001 - keep going, the archive is a bonus
             log(f"    archive {year}: {e}")
             rows = []

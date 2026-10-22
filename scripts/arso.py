@@ -273,6 +273,10 @@ def parse_archive(text: str) -> list[tuple[date, dict]]:
     return out
 
 
+class ArchiveUnavailable(RuntimeError):
+    """ARSO's archive site answered with its maintenance page instead of data."""
+
+
 def fetch_archive_year(river: str, station_id: str, year: int, debug_log=None) -> list[tuple[date, dict]]:
     params = {
         "p_vodotok": river,
@@ -283,6 +287,9 @@ def fetch_archive_year(river: str, station_id: str, year: int, debug_log=None) -
     }
     text = decode(fetch(ARCHIVE_URL, params))
     rows = parse_archive(text)
+    # "Arhiv hidroloških podatkov je začasno nedosegljiv / nedostopna": temporarily unavailable.
+    if not rows and re.search(r"za\w*asno\s+nedos", text):
+        raise ArchiveUnavailable("ARSO's archive site is temporarily unavailable")
     if debug_log and not rows:
         # Shows whether ARSO has nothing for that year or sent something the parser does not understand.
         debug_log(f"    archive {year}: no rows; ARSO sent {len(text)} chars: {text[:400]!r}")

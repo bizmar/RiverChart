@@ -27,6 +27,8 @@ const state = {
   cache: {},
   series: {},
   window: [0, 0],
+  picked: null, // a day chosen with the date picker, "YYYY-MM-DD"
+  above: {}, // "times above" values per measurement, e.g. { level: 150 }
 };
 
 const $ = (id) => document.getElementById(id);
@@ -71,7 +73,7 @@ function classify(text) {
     [/prvi|visokovod|poplav/, "serious", "Flood stage 1"],
     [/velik|visok/, "warning", "High"],
     [/mal|nizek|nizk/, "info", "Low"],
-    [/srednj|normal|povpre/, "good", "Normal"],
+    [/srednj|normal|povpre|obi.ajn/, "good", "Normal"], // "običajni pretok" since autumn 2026
   ];
   for (const [re, level, label] of rules) if (re.test(s)) return { level, label, raw: text };
   return { level: "info", label: text, raw: text };
@@ -126,7 +128,7 @@ function parseLive(text) {
 function parseDaily(text) {
   return parseCsv(text).map((r) => {
     const [y, m, d] = r.date.split("-").map(Number);
-    return { t: Date.UTC(y, m - 1, d, 11), level: num(r.level), flow: num(r.flow), temp: num(r.temp), daily: true, src: r.src };
+    return { date: r.date, t: Date.UTC(y, m - 1, d, 11), level: num(r.level), flow: num(r.flow), temp: num(r.temp), daily: true, src: r.src };
   });
 }
 
@@ -212,6 +214,10 @@ function chartOption() {
   const panelIdx = ids.map((_, i) => i);
   // Panel titles: always in the stacked view, and on phones (where the unit has no room on the axis).
   const titled = compact || n > 1;
+  // "Times above": the line turns red wherever it is above the chosen value.
+  const aboveId = aboveMetric();
+  const above = state.above[aboveId];
+  const alert = css("--critical");
   const lastPoint = (id) => { const p = state.series[id]; for (let i = p.length - 1; i >= 0; i--) if (p[i][1] != null) return p[i]; return null; };
   return {
     animation: false,
@@ -224,6 +230,14 @@ function chartOption() {
       textStyle: { fontSize: compact ? 11 : 13, fontWeight: 600, color: ink2, rich: { k: { color: color(id), fontSize: compact ? 9 : 10 } } },
     })) : [],
     grid: ids.map((_, i) => ({ left: L.left, right: L.right, top: panelTop(i), height: h })),
+    visualMap: above != null && ids.includes(aboveId) ? [{
+      type: "piecewise",
+      show: false,
+      seriesIndex: ids.indexOf(aboveId),
+      dimension: 1,
+      // ECharts 5.6 needs one closed range to build its colour stops, so "above" gets a far-away ceiling.
+      pieces: [{ gt: above, lte: Math.abs(above) * 10 + 1e6, color: alert }, { lte: above, color: color(aboveId) }],
+    }] : [],
     xAxis: ids.map((_, i) => ({
       type: "time",
       gridIndex: i,
@@ -237,7 +251,8 @@ function chartOption() {
       type: "value",
       gridIndex: i,
       scale: id !== "flow",
-      min: id === "flow" ? 0 : undefined,
+      min: id === "flow" ? 0 : id === aboveId && above != null ? (v) => Math.min(v.min, above) : undefined,
+      max: id === aboveId && above != null ? (v) => Math.max(v.max, above) : undefined,
       position: compact ? "right" : "left",
       name: titled ? "" : METRICS[id].unit,
       nameTextStyle: { color: muted, align: "right", padding: [0, 6, 0, 0] },
@@ -294,27 +309,12 @@ function chartOption() {
       showSymbol: false,
       symbolSize: 8,
       connectNulls: false,
-      lineStyle: { width: 2, color: color(id) },
-      itemStyle: { color: color(id), borderColor: surface, borderWidth: 2 },
+      // On the "times above" panel the visualMap colours the line, so it must not be fixed here.
+      lineStyle: { width: 2, color: id === aboveId && above != null ? undefined : color(id) },
+      itemStyle: { color: id === aboveId && above != null ? undefined : color(id), borderColor: surface, borderWidth: 2 },
       emphasis: { disabled: true },
-      // Phones: TradingView-style badge with the latest value on the value scale.
-      markLine: compact && lastPoint(id) ? {
-        silent: true,
-        symbol: "none",
-        animation: false,
-        lineStyle: { color: color(id), type: "dashed", width: 1, opacity: 0.7 },
-        label: {
-          position: "end",
-          formatter: fmtVal(lastPoint(id)[1], id),
-          backgroundColor: color(id),
-          color: inkOn(color(id)),
-          padding: [2, 4],
-          borderRadius: 2,
-          fontSize: 10,
-          fontWeight: 600,
-        },
-        data: [{ yAxis: lastPoint(id)[1] }],
-      } : undefined,
+      markLine: panelLines(id, compact, lastPoint(id)),
+      markArea: pickedArea(),
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
           { offset: 0, color: hexAlpha(color(id), 0.2) },
@@ -330,11 +330,39 @@ function hexAlpha(hex, a) {
   return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
-function rangeWindow(rangeId) {
+// Horizontal lines on a panel: the latest-value badge (phones) and the "times above" value.
+function panelLines(id, compact, last) {
+  const color = css(METRICS[id].color), alert = css("--critical");
+  const data = [];
+  if (compact && last) {
+    data.push({
+      yAxis: last[1],
+      lineStyle: { color, type: "dashed", width: 1, opacity: 0.7 },
+      label: { position: "end", formatter: fmtVal(last[1], id), backgroundColor: color, color: inkOn(color), padding: [2, 4], borderRadius: 2, fontSize: 10, fontWeight: 600 },
+    });
+  }
+  const above = state.above[id];
+  if (id === aboveMetric() && above != null) {
+    data.push({
+      yAxis: above,
+      lineStyle: { color: alert, type: "dashed", width: 1.5, opacity: 0.9 },
+      label: { position: "insideStartTop", formatter: `above ${fmtVal(above, id)} ${METRICS[id].unit}`, color: alert, fontSize: compact ? 10 : 11, fontWeight: 600 },
+    });
+  }
+  return data.length ? { silent: true, symbol: "none", animation: false, data } : undefined;
+}
+
+// First and last time with data across the shown panels.
+function dataBounds() {
   const all = panels().map((id) => state.series[id]).filter((p) => p?.length);
-  if (!all.length) return [0, 0];
-  const first = Math.min(...all.map((p) => p[0][0]));
-  const last = Math.max(...all.map((p) => p[p.length - 1][0]));
+  if (!all.length) return null;
+  return [Math.min(...all.map((p) => p[0][0])), Math.max(...all.map((p) => p[p.length - 1][0]))];
+}
+
+function rangeWindow(rangeId) {
+  const b = dataBounds();
+  if (!b) return [0, 0];
+  const [first, last] = b;
   const r = RANGES.find((x) => x.id === rangeId);
   return [r.days === Infinity ? first : Math.max(first, last - r.days * DAY), last];
 }
@@ -357,6 +385,11 @@ function renderChart(keepWindow) {
   chart.resize();
   chartHeight = $("chart").clientHeight;
   chart.setOption(chartOption(), { notMerge: true });
+  const b = dataBounds();
+  if (b) {
+    $("date").min = isoDay(b[0]);
+    $("date").max = isoDay(Date.now());
+  }
   setWindow(win);
 }
 
@@ -382,6 +415,7 @@ async function onWindow(s, e) {
     if (await loadMonths(state.station, c.meta.live_months.slice(first, Math.max(loadedFirst, first + 1)))) {
       buildAllSeries();
       chart.setOption({ series: panels().map((id) => ({ data: state.series[id] })) });
+      renderAbove();
       setWindow([s, e]);
     }
   } finally {
@@ -409,6 +443,7 @@ function visibleRows() {
 }
 
 function renderWindowStats() {
+  renderDayReadout();
   const box = $("window-stats");
   box.replaceChildren();
   const ids = panels();
@@ -485,6 +520,210 @@ function downloadCsv() {
   a.download = `${st.river}-${st.place}-${state.metric}.csv`.replace(/\s+/g, "_");
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ---------------------------------------------------------------- date picker
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const isoDay = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+// Start and end of a calendar day in the viewer's time zone.
+function dayBounds(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return [new Date(y, m - 1, d).getTime(), new Date(y, m - 1, d + 1).getTime()];
+}
+const dayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+const shortDayFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+// The chosen day, shaded on every panel.
+function pickedArea() {
+  const ink = css("--ink");
+  return {
+    silent: true,
+    itemStyle: { color: hexAlpha(ink, 0.07), borderColor: hexAlpha(ink, 0.35), borderWidth: 1, borderType: "dashed" },
+    data: state.picked ? [[{ xAxis: dayBounds(state.picked)[0] }, { xAxis: dayBounds(state.picked)[1] }]] : [],
+  };
+}
+
+// Centre the chart on a day, keeping the current zoom (or a month, when zoomed out further than a year).
+function jumpToDate(iso) {
+  state.picked = iso || null;
+  renderDatePick();
+  writeHash();
+  if (!chart.getOption()?.series?.length) return;
+  chart.setOption({ series: panels().map(() => ({ markArea: pickedArea() })) });
+  const b = dataBounds();
+  if (!state.picked || !b) {
+    renderDayReadout();
+    return;
+  }
+  const [a, z] = dayBounds(state.picked);
+  const [s, e] = currentWindow();
+  let span = e - s;
+  if (!(span > 0) || span > 366 * DAY) span = 30 * DAY;
+  span = Math.max(span, 2 * DAY);
+  let start = (a + z) / 2 - span / 2, end = start + span;
+  if (end > b[1]) { start -= end - b[1]; end = b[1]; }
+  if (start < b[0]) { end = Math.min(b[1], end + (b[0] - start)); start = b[0]; }
+  for (const btn of $("ranges").children) btn.setAttribute("aria-checked", "false");
+  setWindow([start, end]);
+}
+
+function renderDatePick() {
+  const set = !!state.picked;
+  $("date-text").textContent = set ? shortDayFmt.format(dayBounds(state.picked)[0]) : "Date";
+  $("date-text").closest(".date-button").classList.toggle("set", set);
+  $("date").value = state.picked ?? "";
+  $("date-clear").hidden = !set;
+}
+
+// One line with the chosen day's values, from the daily record (ARSO's archive, or the mean of our readings).
+function renderDayReadout() {
+  const box = $("day-readout");
+  box.replaceChildren();
+  box.hidden = !state.picked;
+  const c = state.cache[state.station];
+  if (!state.picked || !c?.daily) return;
+  box.append(el("b", null, dayFmt.format(dayBounds(state.picked)[0])), ": ");
+  const row = c.daily.find((d) => d.date === state.picked);
+  const vals = row ? Object.keys(METRICS).filter((id) => row[id] != null) : [];
+  if (!vals.length) {
+    box.append(noDataReason(c, state.picked));
+    return;
+  }
+  vals.forEach((id, i) => {
+    if (i) box.append(" · ");
+    box.append(`${METRICS[id].short} `, el("b", null, `${fmtVal(row[id], id)} ${METRICS[id].unit}`));
+  });
+  box.append(el("span", "note", row.src === "a" ? " · daily mean, validated by ARSO" : " · daily mean of the measured readings"));
+}
+
+function noDataReason(c, iso) {
+  const firstLive = c.daily.find((d) => d.src === "m")?.date;
+  const archiveTo = c.meta.archive_to;
+  if (c.meta.daily_from && iso < c.meta.daily_from) return `no data. This station's record starts on ${shortDayFmt.format(dayBounds(c.meta.daily_from)[0])}.`;
+  if (archiveTo && iso > archiveTo && (!firstLive || iso < firstLive)) {
+    return `no data yet. ARSO's checked archive currently ends on ${shortDayFmt.format(dayBounds(archiveTo)[0])}` +
+      (firstLive ? `, and recording here started on ${shortDayFmt.format(dayBounds(firstLive)[0])}.` : ".");
+  }
+  return "no reading for this day.";
+}
+
+// ---------------------------------------------------------------- times above a value
+
+// The measurement "times above" works on: the one shown, or the water level in the stacked view.
+function aboveMetric() {
+  if (state.metric !== ALL) return state.metric;
+  const has = panels();
+  return has.includes("level") ? "level" : has[0];
+}
+
+// Every stretch where the line is above x, over the whole record.
+function episodesAbove(id, x) {
+  const out = [];
+  let cur = null;
+  for (const [t, v, daily] of state.series[id] ?? []) {
+    if (v != null && v > x) {
+      if (!cur) cur = { start: t, end: t, peak: v, peakT: t, daily: false };
+      cur.end = t;
+      if (v > cur.peak) { cur.peak = v; cur.peakT = t; }
+      if (daily) cur.daily = true;
+    } else if (cur) {
+      out.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) out.push({ ...cur, ongoing: true });
+  return out;
+}
+
+function lasted(ep) {
+  if (ep.daily) {
+    const days = Math.round((ep.end - ep.start) / DAY) + 1;
+    return days === 1 ? "1 day" : `${days} days`;
+  }
+  const h = (ep.end - ep.start) / 3600000;
+  if (h < 1) return "under 1 h";
+  return h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`;
+}
+
+let aboveShowAll = false;
+function renderAbove() {
+  const id = aboveMetric();
+  const m = METRICS[id];
+  const x = state.above[id];
+  $("above-what").textContent = m.label.toLowerCase();
+  $("above-unit").textContent = m.unit;
+  if (document.activeElement !== $("above")) $("above").value = x ?? "";
+  $("above-clear").hidden = x == null;
+
+  // Suggestions: ARSO's flood-stage flows for this station.
+  const dl = $("above-suggest");
+  dl.replaceChildren();
+  const stages = id === "flow" ? state.byId[state.station]?.thresholds?.flow : null;
+  for (const [stage, v] of Object.entries(stages ?? {})) {
+    const o = el("option");
+    o.value = v;
+    o.label = `Flood stage ${stage}`;
+    dl.append(o);
+  }
+
+  const sum = $("above-summary"), list = $("above-list"), more = $("above-more");
+  list.replaceChildren();
+  sum.replaceChildren();
+  sum.hidden = x == null;
+  more.hidden = true;
+  if (x == null) return;
+
+  const eps = episodesAbove(id, x);
+  const first = state.series[id]?.find((p) => p[1] != null);
+  const since = first ? shortDayFmt.format(first[0]) : "";
+  if (!eps.length) {
+    sum.append(`Not above ${fmtVal(x, id)} ${m.unit} since ${since}.`);
+  } else {
+    const top = eps.reduce((a, b) => (b.peak > a.peak ? b : a));
+    sum.append(el("b", null, eps.length === 1 ? "Once" : `${eps.length} times`), ` since ${since}. Highest: `,
+      el("b", null, `${fmtVal(top.peak, id)} ${m.unit}`), ` on ${dayFmt.format(top.peakT)}.`);
+  }
+  if (eps.some((e) => e.daily) || !eps.length) {
+    sum.append(el("span", "note", "Before live recording began, this uses ARSO's daily averages, so short peaks within a day may not show."));
+  }
+
+  const shown = aboveShowAll ? eps.slice().reverse() : eps.slice(-8).reverse(); // newest first
+  for (const ep of shown) {
+    const b = el("button");
+    b.type = "button";
+    const when = ep.daily || ep.end - ep.start >= DAY
+      ? (isoDay(ep.start) === isoDay(ep.end) ? shortDayFmt.format(ep.start) : `${shortDayFmt.format(ep.start)} – ${shortDayFmt.format(ep.end)}`)
+      : `${shortDayFmt.format(ep.start)}, ${timeFmt.format(ep.start)}–${timeFmt.format(ep.end)}`;
+    const peak = el("span", "peak", "peak ");
+    peak.append(el("b", null, `${fmtVal(ep.peak, id)} ${m.unit}`));
+    b.append(el("span", "when", when), el("span", null, ep.ongoing ? "still above" : lasted(ep)), peak);
+    b.title = "Show this on the chart";
+    b.onclick = () => {
+      jumpToDate(isoDay(ep.peakT));
+      $("chart").scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    const li = el("li");
+    li.append(b);
+    list.append(li);
+  }
+  if (eps.length > 8) {
+    more.hidden = false;
+    more.textContent = aboveShowAll ? "Show only the latest 8" : `Show all ${eps.length}`;
+  }
+}
+
+let aboveTimer = null;
+function setAbove(raw) {
+  const id = aboveMetric();
+  const v = raw === "" || raw == null ? null : Number(raw);
+  if (v != null && !Number.isFinite(v)) return;
+  if (v == null) delete state.above[id];
+  else state.above[id] = v;
+  aboveShowAll = false;
+  writeHash();
+  renderChart(true);
+  renderAbove();
 }
 
 // ---------------------------------------------------------------- page
@@ -638,9 +877,15 @@ function readHash() {
   if (p.get("s") && state.byId[p.get("s")]?.tracked) state.station = p.get("s");
   if (METRICS[p.get("m")] || p.get("m") === ALL) state.metric = p.get("m");
   if (RANGES.some((r) => r.id === p.get("r"))) state.range = p.get("r");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(p.get("d") ?? "")) state.picked = p.get("d");
+  for (const id of Object.keys(METRICS)) {
+    const v = Number(p.get(`a${id[0]}`));
+    if (p.get(`a${id[0]}`) && Number.isFinite(v)) state.above[id] = v;
+  }
 }
 function writeHash() {
-  history.replaceState(null, "", `#s=${state.station}&m=${state.metric}&r=${state.range}`);
+  const above = Object.entries(state.above).map(([id, v]) => `&a${id[0]}=${v}`).join("");
+  history.replaceState(null, "", `#s=${state.station}&m=${state.metric}&r=${state.range}${state.picked ? `&d=${state.picked}` : ""}${above}`);
 }
 
 async function selectStation(id) {
@@ -661,6 +906,8 @@ async function update(keepWindow = false) {
     renderHero();
     renderControls();
     renderChart(keepWindow && chart.getOption()?.series?.length > 0);
+    renderAbove();
+    if (state.picked && !keepWindow) jumpToDate(state.picked);
   } catch (err) {
     showError(`Could not load data for this station (${err.message}).`);
   } finally {
@@ -688,6 +935,24 @@ async function init() {
   }).observe($("chart"));
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderChart(true));
   $("download").onclick = downloadCsv;
+  $("date").addEventListener("change", (e) => jumpToDate(e.target.value));
+  // Open the calendar wherever the button is clicked (desktop browsers otherwise only open it from a tiny icon).
+  $("date").addEventListener("click", () => { try { $("date").showPicker(); } catch { /* older browsers: typing still works */ } });
+  $("date-clear").onclick = () => jumpToDate(null);
+  // A different RiverChart link pasted into an open tab (our own updates use replaceState, which doesn't fire this).
+  window.addEventListener("hashchange", () => {
+    state.picked = null;
+    state.above = {};
+    readHash();
+    renderDatePick();
+    update();
+  });
+  $("above").addEventListener("input", (e) => {
+    clearTimeout(aboveTimer);
+    aboveTimer = setTimeout(() => setAbove(e.target.value.trim()), 400);
+  });
+  $("above-clear").onclick = () => { $("above").value = ""; setAbove(null); };
+  $("above-more").onclick = () => { aboveShowAll = !aboveShowAll; renderAbove(); };
   $("table").closest("details").addEventListener("toggle", (e) => e.target.open && renderTable());
 
   let catalogue;

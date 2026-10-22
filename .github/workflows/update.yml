@@ -3,7 +3,7 @@ name: Update data and publish
 on:
   schedule:
     - cron: "4,34 * * * *"   # every 30 min, a few minutes after ARSO publishes
-    - cron: "17 3 * * 1"     # Mondays: re-check the archive for newly validated years
+    - cron: "17 3 * * *"     # daily: re-check the archive for newly validated years (e.g. 2025)
   workflow_dispatch:
     inputs:
       archive:
@@ -51,7 +51,7 @@ jobs:
         continue-on-error: true
         run: |
           archive="${{ inputs.archive || 'missing' }}"
-          if [ "${{ github.event.schedule }}" = "17 3 * * 1" ]; then archive=recent; fi
+          if [ "${{ github.event.schedule }}" = "17 3 * * *" ]; then archive=recent; fi
           python3 scripts/update.py --store store --archive "$archive" ${{ inputs.debug && '--debug' || '' }}
 
       # The data branch is rewritten as a single commit each time, so the repository

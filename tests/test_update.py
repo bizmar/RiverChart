@@ -72,6 +72,28 @@ class ParserTests(unittest.TestCase):
                                 (date(2023, 1, 2), {"level": 110, "temp": 7.0})])
 
 
+MAINTENANCE = """<html><head><title>Arhiv hidroloških podatkov je začasno nedosegljiv</title></head>
+<body><h1>Spletna stran Arhiv hidroloških podatkov</h1><p>Spletna stran z arhivom hidroloških podatkov je začasno nedostopna.</p></body></html>"""
+
+
+class ArchiveDownTests(unittest.TestCase):
+    def test_maintenance_page_is_not_empty_data(self):
+        with mock.patch.object(arso, "fetch", lambda *a, **k: MAINTENANCE.encode()):
+            with self.assertRaises(arso.ArchiveUnavailable):
+                arso.fetch_archive_year("Sava", "3570", 2025)
+
+    def test_backfill_stops_and_keeps_data_when_archive_is_down(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = update.StationStore(Path(tmp), "3570")
+            store.add_archive([(date(2024, 12, 31), {"level": 100})])
+            lines = []
+            with mock.patch.object(arso, "fetch", lambda *a, **k: MAINTENANCE.encode()), mock.patch.object(update.time, "sleep"):
+                update.backfill_archive(store, {"river": "Sava", "id": "3570"}, 3, lines.append)
+            self.assertEqual(len(lines), 1)
+            self.assertIn("temporarily unavailable", lines[0])
+            self.assertIn("2024-12-31", store.daily())
+
+
 class EndToEndTests(unittest.TestCase):
     def fake_fetch(self, url, params=None, **kw):
         if url == arso.XML_URL:

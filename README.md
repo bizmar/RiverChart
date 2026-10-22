@@ -8,6 +8,8 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 - an **interactive chart**: zoom with the scroll wheel or a pinch, drag to pan, or jump to 2 days … 10 years … the whole record
 - **All** view: water level, flow and temperature stacked on one shared time axis, so zooming, panning and the hover readout move together
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
+- a **date picker**: jump to any day and see its level, flow and temperature in one line
+- **times above a value**: type e.g. 250 cm and the chart marks every stretch above it in red, with a list of each time (dates, how long, peak). Tap one to jump there. For flow, ARSO's flood-stage values are offered as suggestions
 - a data table and a CSV download for whatever range you are looking at
 - every nearby ARSO gauge, sorted by distance from Zalog
 - light and dark mode that follows your device, with a manual override, and a dense chart-first layout on phones
@@ -39,7 +41,7 @@ GitHub Actions (every 30 min)            GitHub Pages
 - `scripts/update.py` merges new readings into plain CSV files. They are kept on the `data` branch, which is rewritten as a single commit each time so the repository stays small.
 - `site/` is a static page (HTML + JavaScript + [Apache ECharts](https://echarts.apache.org/)) that reads those CSV files directly.
 
-The first run back-fills each station: the last 30 days at 30-minute resolution, and the complete daily archive, year by year. Every Monday the last 3 archive years are re-checked, because ARSO validates and publishes them with a delay.
+The first run back-fills each station: the last 30 days at 30-minute resolution, and the complete daily archive, year by year. Every day the last 3 archive years are re-checked, because ARSO validates and publishes them with a delay. When ARSO's archive site is down for maintenance, the check says so in the log and simply tries again the next day.
 
 ### Data layout
 

@@ -45,10 +45,39 @@
     <section class="card chart-card">
       <div class="controls">
         <div class="segmented" id="metrics" role="radiogroup" aria-label="Measurement"></div>
-        <div class="segmented" id="ranges" role="radiogroup" aria-label="Time range"></div>
+        <div class="range-bar">
+          <div class="segmented" id="ranges" role="radiogroup" aria-label="Time range"></div>
+          <div class="date-pick">
+            <label class="date-button" title="Jump to a date">
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg>
+              <span id="date-text">Date</span>
+              <input type="date" id="date" aria-label="Jump to a date">
+            </label>
+            <button type="button" class="date-clear" id="date-clear" aria-label="Clear the date" title="Clear the date" hidden>
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
       <div id="chart" class="chart" role="img" aria-label="Interactive chart of the selected measurement"></div>
       <p class="hint">Scroll or pinch to zoom, drag to pan, or use the slider. Before live recording began, the line shows ARSO's validated daily means.</p>
+      <p class="day-readout" id="day-readout" aria-live="polite" hidden></p>
+      <section class="above" aria-label="Times above a value">
+        <div class="above-row">
+          <label for="above">Times when <span id="above-what">water level</span> was above</label>
+          <span class="above-field">
+            <input type="number" id="above" inputmode="decimal" step="any" list="above-suggest" placeholder="value">
+            <span id="above-unit">cm</span>
+            <button type="button" class="date-clear" id="above-clear" aria-label="Clear the value" title="Clear" hidden>
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+            </button>
+          </span>
+          <datalist id="above-suggest"></datalist>
+        </div>
+        <p class="above-summary" id="above-summary" aria-live="polite" hidden></p>
+        <ol class="above-list" id="above-list"></ol>
+        <button type="button" class="link-button" id="above-more" hidden></button>
+      </section>
       <dl class="window-stats" id="window-stats"></dl>
       <details class="table-view">
         <summary>Data table</summary>

@@ -223,6 +223,103 @@ h1 { font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.01em; }
   box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 .segmented button:disabled { opacity: 0.4; cursor: default; }
+.range-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.date-pick { display: inline-flex; align-items: center; }
+.date-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--wash);
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.date-button:hover { color: var(--ink); }
+.date-button.set {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+/* The real date input sits invisibly on top, so a tap opens the phone's own date picker. */
+.date-button input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.date-button:focus-within { outline: 2px solid var(--series); outline-offset: 2px; }
+.date-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.date-clear:hover { background: var(--wash); color: var(--ink); }
+.date-clear[hidden] { display: none; }
+/* times above a value */
+.above { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--grid); font-size: 0.9375rem; }
+.above-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; color: var(--ink-2); }
+.above-field { display: inline-flex; align-items: center; gap: 6px; }
+.above-field input {
+  width: 6.5em;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.above-field input:focus { outline: 2px solid var(--critical); outline-offset: 1px; border-color: transparent; }
+.above-summary { margin: 8px 0 0; color: var(--ink-2); }
+.above-summary[hidden] { display: none; }
+.above-summary b { color: var(--ink); }
+.above-summary .note { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8125rem; }
+.above-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.above-list:empty { display: none; }
+.above-list button {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+}
+.above-list button:hover { background: var(--wash); }
+.above-list .when { min-width: 13em; color: var(--ink); font-weight: 600; }
+.above-list .peak b { color: var(--critical); }
+#above-more { margin-top: 4px; }
+.day-readout { margin-top: 12px; color: var(--ink-2); font-size: 0.9375rem; }
+.day-readout[hidden] { display: none; }
+.day-readout b { color: var(--ink); }
+.day-readout .note { color: var(--muted); }
 .chart { width: 100%; height: clamp(320px, 52vh, 520px); transition: opacity 0.2s; }
 .chart.multi { height: clamp(620px, 96vh, 900px); }
 .chart.loading { opacity: 0.5; }
@@ -321,7 +418,12 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   .stations { order: 1; }
   #metrics { order: 2; }
   .chart { order: 3; }
-  #ranges { order: 4; }
+  .range-bar { order: 4; }
+  .day-readout { order: 4; }
+  .above { order: 5; margin: 0; padding: 8px 10px; border-top: 0; border-bottom: 1px solid var(--grid); font-size: 0.8125rem; }
+  .above-field input { font-size: 16px; height: 32px; } /* 16px stops iOS zooming in */
+  .above-list button { font-size: 0.8125rem; padding: 5px 4px; }
+  .above-list .when { min-width: 0; }
   .hero { order: 5; }
   .window-stats { order: 6; }
   .table-view { order: 7; }
@@ -338,7 +440,13 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   .segmented button { flex: 1; min-height: 34px; padding: 4px 2px; border-radius: 0; font-size: 0.8125rem; }
   .segmented button[aria-checked="true"] { background: none; box-shadow: inset 0 -2px 0 var(--ink); }
   #metrics { border-top: 1px solid var(--grid); border-bottom: 1px solid var(--grid); }
-  #ranges { border-top: 1px solid var(--grid); border-bottom: 1px solid var(--grid); }
+  .range-bar { flex-wrap: nowrap; gap: 0; border-top: 1px solid var(--grid); border-bottom: 1px solid var(--grid); }
+  .range-bar #ranges { flex: 1; min-width: 0; }
+  .date-button { height: 34px; padding: 0 10px; border-radius: 0; background: none; font-size: 0.8125rem; }
+  .date-button.set { background: none; box-shadow: inset 0 -2px 0 var(--ink); }
+  .date-button:not(.set) #date-text { display: none; } /* just the calendar icon until a date is picked */
+  .date-clear { margin: 0 4px 0 0; }
+  .day-readout { margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--grid); font-size: 0.8125rem; }
 
   .chart { height: max(300px, 56svh); }
   /* All three panels fill the screen below the header, station row and tab bar. */
