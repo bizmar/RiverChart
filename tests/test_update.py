@@ -94,6 +94,46 @@ class ArchiveDownTests(unittest.TestCase):
             self.assertIn("2024-12-31", store.daily())
 
 
+WAYBACK_TABLE = """<table><tr><th>Datum</th><th>Vodostaj (cm)</th><th>Pretok (m3/s)</th><th>Temp. vode (C)</th></tr>
+<tr><td>02.05.2025 10:00</td><td>71</td><td>37</td><td>13,1</td></tr>
+<tr><td>02.05.2025 09:00</td><td>72</td><td>38</td><td>13,0</td></tr>
+<tr><td>01.05.2025 09:00</td><td>80</td><td>40</td><td>12,8</td></tr></table>"""
+
+
+class WaybackTests(unittest.TestCase):
+    def fake_fetch(self, url, params=None, **kw):
+        if url == arso.WAYBACK_CDX:
+            self.cdx_params.append(params)
+            if "_t_30" in params["url"]:
+                return json.dumps([["timestamp", "original"], ["20250502081747", "https://www.arso.gov.si/vode/podatki/amp/H5078_t_30.html"]]).encode()
+            return b"[]"
+        if url.startswith("https://web.archive.org/web/20250502081747id_/"):
+            return WAYBACK_TABLE.encode()
+        raise AssertionError(url)
+
+    def test_import_fills_live_and_daily(self):
+        self.cdx_params = []
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(arso, "fetch", self.fake_fetch), mock.patch.object(update.time, "sleep"):
+            store = update.StationStore(Path(tmp), "5078")
+            lines = []
+            update.import_wayback(store, {"id": "5078"}, "2025", lines.append)
+            store.recompute_daily_means()
+            store.save({"river": "Ljubljanica", "place": "Moste I"})
+            self.assertEqual(self.cdx_params[0]["from"], "2025")
+            self.assertIn("1 saved copies", lines[0])
+            with (Path(tmp) / "5078" / "live" / "2025-05.csv").open() as f:
+                self.assertEqual(len(list(csv.DictReader(f))), 3)
+            daily = store.daily()
+            self.assertEqual(daily["2025-05-02"]["level"], "71.5")
+            self.assertEqual(daily["2025-05-02"]["src"], "m")
+
+    def test_archive_unreachable_does_not_fail(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(arso, "fetch", side_effect=RuntimeError("down")):
+            lines = []
+            update.import_wayback(update.StationStore(Path(tmp), "5078"), {"id": "5078"}, "2025", lines.append)
+            self.assertIn("could not list copies", lines[0])
+
+
 class EndToEndTests(unittest.TestCase):
     def fake_fetch(self, url, params=None, **kw):
         if url == arso.XML_URL:

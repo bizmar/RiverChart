@@ -43,6 +43,12 @@ GitHub Actions (every 30 min)            GitHub Pages
 
 The first run back-fills each station: the last 30 days at 30-minute resolution, and the complete daily archive, year by year. Every day the last 3 archive years are re-checked, because ARSO validates and publishes them with a delay. When ARSO's archive site is down for maintenance, the check says so in the log and simply tries again the next day.
 
+### Filling the 2025 gap from the Internet Archive
+
+ARSO has not published its checked (validated) data for 2025 yet: its archive and its statistics files both end in December 2024. Until it does, some of that time can be recovered from the [Internet Archive](https://web.archive.org/), which saved copies of ARSO's 30-day and 1-day station tables now and then. Each copy holds that period's automatic readings.
+
+To import them, run **Actions → Update data and publish → Run workflow** with *wayback* set to a start date (e.g. `2025`). The imported readings are ARSO's own measurements, like the live data, and are shown the same way. When ARSO publishes the checked year, its daily values take over automatically.
+
 ### Data layout
 
 ```

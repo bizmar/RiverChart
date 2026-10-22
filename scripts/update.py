@@ -222,11 +222,34 @@ def backfill_archive(store: StationStore, station: dict, years: int | None, log,
         time.sleep(0.5)
 
 
+def import_wayback(store: StationStore, station: dict, since: str, log) -> None:
+    """Add readings from the Internet Archive's copies of the station's ARSO tables."""
+    try:
+        captures = arso.wayback_captures(station["id"], since)
+    except Exception as e:  # noqa: BLE001 - a bonus source; never fail the run over it
+        log(f"    internet archive: could not list copies ({e})")
+        return
+    log(f"    internet archive: {len(captures)} saved copies since {since}")
+    for ts, url in captures:
+        try:
+            rows = arso.fetch_wayback_table(ts, url)
+        except Exception as e:  # noqa: BLE001
+            log(f"      {ts}: failed ({e})")
+            continue
+        added = store.add_live(rows)
+        span = f"{rows[-1][0]:%Y-%m-%d} .. {rows[0][0]:%Y-%m-%d}" if rows else "empty"
+        log(f"      {ts}: {len(rows)} readings ({span}), {added} new")
+        time.sleep(1)  # be gentle with the Internet Archive
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--store", type=Path, default=Path("store"), help="data folder (default: ./store)")
     ap.add_argument("--archive", choices=["missing", "recent", "full"], default="missing",
                     help="daily archive: only for new stations (default), re-check last 3 years, or everything")
+    ap.add_argument("--wayback", metavar="SINCE",
+                    help="also import the Internet Archive's saved copies of ARSO's station tables since SINCE "
+                         "(YYYY or YYYYMMDD), to fill gaps before live recording began")
     ap.add_argument("--debug", action="store_true", help="print samples of the raw ARSO responses")
     args = ap.parse_args()
     log = lambda *a: print(*a, flush=True)  # noqa: E731
@@ -270,6 +293,9 @@ def main() -> int:
             failures += 1
             log(f"    {days}-day table failed: {e}")
         log(f"    {store.add_live(readings)} new/changed readings")
+
+        if args.wayback:
+            import_wayback(store, st, args.wayback, log)
 
         if needs_archive or args.archive != "missing":
             backfill_archive(store, st, {"missing": None, "full": None, "recent": 3}[args.archive], log, args.debug)

@@ -11,6 +11,10 @@ on:
         type: choice
         options: [missing, recent, full]
         default: missing
+      wayback:
+        description: "Import Internet Archive copies of ARSO's station tables since this date (YYYY or YYYYMMDD), to fill gaps. Leave empty normally."
+        type: string
+        default: ""
       debug:
         description: Print samples of the raw ARSO responses
         type: boolean
@@ -49,10 +53,17 @@ jobs:
       - name: Fetch from ARSO
         id: fetch
         continue-on-error: true
+        env:
+          WAYBACK: ${{ inputs.wayback }}
         run: |
           archive="${{ inputs.archive || 'missing' }}"
           if [ "${{ github.event.schedule }}" = "17 3 * * *" ]; then archive=recent; fi
-          python3 scripts/update.py --store store --archive "$archive" ${{ inputs.debug && '--debug' || '' }}
+          extra=()
+          if [ -n "$WAYBACK" ]; then
+            [[ "$WAYBACK" =~ ^[0-9]{4}([0-9]{4})?$ ]] || { echo "::error::wayback must be YYYY or YYYYMMDD"; exit 1; }
+            extra+=(--wayback "$WAYBACK")
+          fi
+          python3 scripts/update.py --store store --archive "$archive" "${extra[@]}" ${{ inputs.debug && '--debug' || '' }}
 
       # The data branch is rewritten as a single commit each time, so the repository
       # does not grow with every update. The files themselves keep the full history.

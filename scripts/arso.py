@@ -27,6 +27,9 @@ from zoneinfo import ZoneInfo
 XML_URL = "https://www.arso.gov.si/xml/vode/hidro_podatki_zadnji.xml"
 TABLE_URL = "https://www.arso.gov.si/vode/podatki/amp/H{id}_t_{days}.html"
 ARCHIVE_URL = "https://vode.arso.gov.si/hidarhiv/pov_arhiv_tab.php"
+# The Internet Archive's saved copies of ARSO's station tables fill gaps that ARSO's own archive does not cover yet.
+WAYBACK_CDX = "https://web.archive.org/cdx/search/cdx"
+WAYBACK_RAW = "https://web.archive.org/web/{ts}id_/{url}"  # id_ = the page as saved, without the archive's toolbar
 USER_AGENT = "RiverChart/1.0 (river level dashboard; +https://github.com/bizmar/RiverChart)"
 
 # ARSO publishes times as local Slovenian wall-clock time.
@@ -294,3 +297,27 @@ def fetch_archive_year(river: str, station_id: str, year: int, debug_log=None) -
         # Shows whether ARSO has nothing for that year or sent something the parser does not understand.
         debug_log(f"    archive {year}: no rows; ARSO sent {len(text)} chars: {text[:400]!r}")
     return rows
+
+
+# --------------------------------------------------------------------------- Internet Archive copies
+
+def wayback_captures(station_id: str, since: str) -> list[tuple[str, str]]:
+    """(timestamp, original url) of every saved copy of the station's 1-day and 30-day tables since `since` (YYYY or YYYYMMDD)."""
+    import json
+    out = []
+    for days in (30, 1):
+        params = {
+            "url": f"arso.gov.si/vode/podatki/amp/H{station_id}_t_{days}.html",
+            "output": "json",
+            "from": since,
+            "filter": "statuscode:200",
+            "fl": "timestamp,original",
+            "collapse": "timestamp:10",  # at most one copy per hour
+        }
+        rows = json.loads(fetch(WAYBACK_CDX, params, timeout=90) or b"[]")
+        out += [(r[0], r[1]) for r in rows[1:]]
+    return sorted(out)
+
+
+def fetch_wayback_table(ts: str, url: str) -> list[tuple[datetime, dict]]:
+    return parse_station_table(decode(fetch(WAYBACK_RAW.format(ts=ts, url=url), timeout=90)))

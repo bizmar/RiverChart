@@ -151,19 +151,23 @@ async function loadMonths(id, months) {
   return todo.length > 0;
 }
 
-// One continuous line: validated daily means first, then measured live readings.
+// One line: measured readings where they are loaded, daily means (ARSO's archive or our own) for every other day.
 function buildPoints(c, metric) {
   const live = [...c.live.keys()].sort().flatMap((m) => c.live.get(m)).filter((r) => r[metric] != null);
-  const liveStart = live.length ? live[0].t : Infinity;
+  const liveDays = new Set(live.map((r) => isoDay(r.t)));
+  const merged = [
+    ...c.daily.filter((d) => d[metric] != null && !liveDays.has(d.date)).map((d) => [d.t, d[metric], 1]),
+    ...live.map((r) => [r.t, r[metric]]),
+  ].sort((x, y) => x[0] - y[0]);
   const pts = [];
   let prev = null;
-  const push = (t, v, daily, maxGap) => {
-    if (prev != null && t - prev > maxGap) pts.push([prev + 1, null]); // break the line across gaps
-    pts.push(daily ? [t, v, 1] : [t, v]);
-    prev = t;
-  };
-  for (const d of c.daily) if (d.t < liveStart - DAY / 2 && d[metric] != null) push(d.t, d[metric], true, 4 * DAY);
-  for (const [i, r] of live.entries()) push(r.t, r[metric], false, i === 0 ? 4 * DAY : 6 * 3600000);
+  for (const p of merged) {
+    // Break the line across gaps: more than 4 days around daily values, or 6 hours between readings.
+    const maxGap = prev && (prev[2] || p[2]) ? 4 * DAY : 6 * 3600000;
+    if (prev && p[0] - prev[0] > maxGap) pts.push([prev[0] + 1, null]);
+    pts.push(p);
+    prev = p;
+  }
   return pts;
 }
 
@@ -598,12 +602,11 @@ function renderDayReadout() {
 }
 
 function noDataReason(c, iso) {
-  const firstLive = c.daily.find((d) => d.src === "m")?.date;
   const archiveTo = c.meta.archive_to;
   if (c.meta.daily_from && iso < c.meta.daily_from) return `no data. This station's record starts on ${shortDayFmt.format(dayBounds(c.meta.daily_from)[0])}.`;
-  if (archiveTo && iso > archiveTo && (!firstLive || iso < firstLive)) {
-    return `no data yet. ARSO's checked archive currently ends on ${shortDayFmt.format(dayBounds(archiveTo)[0])}` +
-      (firstLive ? `, and recording here started on ${shortDayFmt.format(dayBounds(firstLive)[0])}.` : ".");
+  if (archiveTo && iso > archiveTo) {
+    // After ARSO's checked archive there are only our own readings and copies recovered from the Internet Archive.
+    return `no data yet. ARSO's checked archive currently ends on ${shortDayFmt.format(dayBounds(archiveTo)[0])}, and no readings from this day were saved.`;
   }
   return "no reading for this day.";
 }
