@@ -7,6 +7,7 @@ The store is a plain folder of CSV/JSON files that the dashboard reads directly:
     <id>/meta.json             what is stored for a tracked station
     <id>/daily.csv             one row per day (validated archive + daily means of live data)
     <id>/live/<YYYY-MM>.csv    measured readings (10-60 min apart), times in UTC
+    G<id>/...                  the same for the groundwater well (level = ARSO's "Nivo", cm below the well top)
 
 Run regularly (GitHub Actions does it every 30 minutes):
 
@@ -36,6 +37,21 @@ RADIUS_KM = 10
 # Always tracked, whatever the radius: Ljubljanica at Moste I, the last gauge before Zalog.
 ALWAYS_TRACK = {"5078"}
 DEFAULT_STATION = "5078"
+
+# The nearest automatic groundwater well: around Zalog, high groundwater (not the river) is what floods cellars.
+# Its fixed facts come from ARSO's station sheet:
+# https://meteo.arso.gov.si/uploads/probase/www/hidro/watercycle/text/sl/observation_sites/piezometers_wells/85040.pdf
+GROUNDWATER = {
+    "id": "G85040",
+    "name": "Hrastje (0341)",
+    "aquifer": "Ljubljansko polje",
+    "lat": 46.06951,
+    "lon": 14.56205,
+    "datum": 287.40,  # m above sea level of the well top ("kota 0"); ARSO's "Nivo" is in cm relative to it
+    "surface": 287.00,  # ground level at the well
+    "record_high": {"value": 276.63, "date": "1973-10-02"},
+    "record_low": {"value": 271.61, "date": "1989-02-24"},
+}
 
 DIGITS = {"level": 1, "flow": 3, "temp": 1}
 
@@ -242,6 +258,39 @@ def import_wayback(store: StationStore, station: dict, since: str, log) -> None:
         time.sleep(1)  # be gentle with the Internet Archive
 
 
+def groundwater_metres(level_cm: float) -> float:
+    """ARSO's "Nivo" (cm relative to the well top) as metres above sea level."""
+    return round(GROUNDWATER["datum"] + level_cm / 100, 2)
+
+
+def update_groundwater(root: Path, log) -> dict:
+    """Store the well's hourly readings and return its entry for stations.json. Never fails the run."""
+    gw = GROUNDWATER
+    log(f"{gw['id']} groundwater - {gw['name']}")
+    store = StationStore(root, gw["id"])
+    # ARSO sends the well's readings in batches, often a day late, so the 7-day table is the normal run.
+    last = store.last_reading()
+    days = 7 if last and datetime.now(timezone.utc) - last < timedelta(days=5) else 30
+    try:
+        table = arso.fetch_groundwater_table(gw["id"], days)
+        log(f"    {days}-day table: {len(table)} readings")
+        log(f"    {store.add_live(table)} new/changed readings")
+    except Exception as e:  # noqa: BLE001 - the river data matters more; keep going
+        log(f"    {days}-day table failed: {e}")
+    store.recompute_daily_means()
+    store.save({"river": "Groundwater", "place": gw["name"]})
+
+    latest = store.last_reading()
+    row = store.month(iso(latest)[:7])[iso(latest)] if latest else {}
+    return {
+        **{k: gw[k] for k in ("id", "name", "aquifer", "lat", "lon", "datum", "surface", "record_high", "record_low")},
+        "dist_km": round(distance_km(HOME["lat"], HOME["lon"], gw["lat"], gw["lon"]), 2),
+        "time": iso(latest) if latest else None,
+        "level": groundwater_metres(float(row["level"])) if row.get("level") else None,
+        "temp": float(row["temp"]) if row.get("temp") else None,
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--store", type=Path, default=Path("store"), help="data folder (default: ./store)")
@@ -302,11 +351,14 @@ def main() -> int:
         store.recompute_daily_means()
         store.save(st)
 
+    groundwater = update_groundwater(args.store, log)
+
     write_json(args.store / "stations.json", {
         "generated": iso(datetime.now(timezone.utc)),
         "home": HOME,
         "default": DEFAULT_STATION,
         "radius_km": RADIUS_KM,
+        "groundwater": groundwater,
         "stations": [
             {
                 "id": s["id"],

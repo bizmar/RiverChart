@@ -40,6 +40,15 @@ TABLE = """<html><body><table>
 <tr><td>05.10.2026 23:30</td><td>140</td><td>35</td><td>14</td></tr>
 </table></body></html>"""
 
+# Groundwater well table: the newest hours are often still empty ("-").
+GROUNDWATER_TABLE = """<table>
+<tr><td>Hrastje (0341) - Ljubljansko polje</td></tr>
+<tr><th>Datum</th><th>Nivo [cm]</th><th>Temperatura vode [&deg;C]</th></tr>
+<tr><td>22.10.2026 01:00</td><td>-</td><td>-</td></tr>
+<tr><td>21.10.2026 08:00</td><td>-1448.0</td><td>12.4</td></tr>
+<tr><td>21.10.2026 07:00</td><td>-1449.0</td><td>12.4</td></tr>
+</table>"""
+
 ARCHIVE = "Datum;vodostaj (cm);pretok (m3/s);temp. vode (°C)\n01.01.2023;114;127.238;7.1\n02.01.2023;110;;7.0\n"
 
 
@@ -62,6 +71,11 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(rows[0], (datetime(2026, 10, 6, 18, 0, tzinfo=timezone.utc),
                                    {"level": 152, "flow": 41.3, "temp": 14.2}))
         self.assertEqual(rows[1][1], {"level": 151, "flow": 40.9})
+
+    def test_groundwater_table(self):
+        rows = arso.parse_station_table(GROUNDWATER_TABLE)
+        self.assertEqual(rows, [(datetime(2026, 10, 21, 6, 0, tzinfo=timezone.utc), {"level": -1448.0, "temp": 12.4}),
+                                (datetime(2026, 10, 21, 5, 0, tzinfo=timezone.utc), {"level": -1449.0, "temp": 12.4})])
 
     def test_winter_time(self):
         self.assertEqual(arso.local_time("15.01.2026 12:00"), datetime(2026, 1, 15, 11, 0, tzinfo=timezone.utc))
@@ -138,6 +152,8 @@ class EndToEndTests(unittest.TestCase):
     def fake_fetch(self, url, params=None, **kw):
         if url == arso.XML_URL:
             return XML
+        if "/podzem_amp/" in url:
+            return GROUNDWATER_TABLE.encode()
         if "_t_" in url:
             return TABLE.encode()
         if url == arso.ARCHIVE_URL:
@@ -171,6 +187,28 @@ class EndToEndTests(unittest.TestCase):
             meta = json.loads((root / "5078" / "meta.json").read_text())
             self.assertEqual(meta["live_months"], ["2026-10"])
             self.assertEqual(meta["archive_to"], "2023-01-02")
+
+            # Groundwater: stored as ARSO publishes it, reported in metres above sea level.
+            gw = stations["groundwater"]
+            self.assertEqual((gw["id"], gw["time"], gw["level"], gw["temp"]), ("G85040", "2026-10-21T06:00Z", 272.92, 12.4))
+            self.assertAlmostEqual(gw["dist_km"], 4.1, delta=0.2)
+            with (root / "G85040" / "live" / "2026-10.csv").open() as f:
+                self.assertEqual([r["level"] for r in csv.DictReader(f)], ["-1449", "-1448"])
+            with (root / "G85040" / "daily.csv").open() as f:
+                self.assertEqual(next(csv.DictReader(f))["level"], "-1448.5")
+
+    def test_groundwater_failure_does_not_fail_the_run(self):
+        def fetch(url, params=None, **kw):
+            if "/podzem_amp/" in url:
+                raise RuntimeError("down")
+            return self.fake_fetch(url, params, **kw)
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(arso, "fetch", fetch), \
+                mock.patch.object(update.time, "sleep"), \
+                mock.patch.object(sys, "argv", ["update.py", "--store", tmp]):
+            self.assertEqual(update.main(), 0)
+            gw = json.loads((Path(tmp) / "stations.json").read_text())["groundwater"]
+            self.assertIsNone(gw["level"])
 
 
 if __name__ == "__main__":

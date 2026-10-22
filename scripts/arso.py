@@ -8,6 +8,8 @@ Three sources are used:
   30 days (the same data behind the static graph on the ARSO station pages).
 * ``hidarhiv/pov_arhiv_tab.php`` - the validated daily archive, one year per
   request, going back decades.
+* ``podzem_amp/G<id>_t_<days>.html`` - hourly readings of an automatic groundwater
+  well (1, 7 or 30 days), in the same table layout as the river stations.
 
 Everything here uses the Python standard library only.
 """
@@ -26,6 +28,7 @@ from zoneinfo import ZoneInfo
 
 XML_URL = "https://www.arso.gov.si/xml/vode/hidro_podatki_zadnji.xml"
 TABLE_URL = "https://www.arso.gov.si/vode/podatki/amp/H{id}_t_{days}.html"
+GROUNDWATER_TABLE_URL = "https://www.arso.gov.si/vode/podatki/podzem_amp/{id}_t_{days}.html"
 ARCHIVE_URL = "https://vode.arso.gov.si/hidarhiv/pov_arhiv_tab.php"
 # The Internet Archive's saved copies of ARSO's station tables fill gaps that ARSO's own archive does not cover yet.
 WAYBACK_CDX = "https://web.archive.org/cdx/search/cdx"
@@ -114,7 +117,8 @@ def local_date(text: str) -> date | None:
 
 def column_field(header: str) -> str | None:
     h = header.lower()
-    if "vodostaj" in h or "water level" in h:
+    # Groundwater wells call it "Nivo [cm]".
+    if "vodostaj" in h or "water level" in h or h.startswith("nivo"):
         return "level"
     if "pretok" in h or "discharge" in h:
         return "flow"
@@ -238,6 +242,12 @@ def parse_station_table(html: str) -> list[tuple[datetime, dict]]:
 
 def fetch_station_table(station_id: str, days: int) -> list[tuple[datetime, dict]]:
     html = decode(fetch(TABLE_URL.format(id=station_id, days=days)))
+    return parse_station_table(html)
+
+
+def fetch_groundwater_table(well_id: str, days: int) -> list[tuple[datetime, dict]]:
+    """Hourly readings of a groundwater well, e.g. G85040. "level" is ARSO's "Nivo": cm relative to the well's top (kota 0)."""
+    html = decode(fetch(GROUNDWATER_TABLE_URL.format(id=well_id, days=days)))
     return parse_station_table(html)
 
 

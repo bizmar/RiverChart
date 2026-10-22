@@ -6,7 +6,8 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 
 - the current water level, flow and water temperature, with the change over the last 24 hours and ARSO's own status (normal / high / flood stage)
 - an **interactive chart**: zoom with the scroll wheel or a pinch, drag to pan, or jump to 2 days … 10 years … the whole record
-- **All** view: water level, flow and temperature stacked on one shared time axis, so zooming, panning and the hover readout move together
+- **groundwater**: the water table at ARSO's nearest automatic well (Hrastje, ~4 km west of Zalog), in metres above sea level, with its record high and low. Around Zalog, cellars flood from rising groundwater rather than from the river itself
+- **All** view: water level, flow, temperature and groundwater stacked on one shared time axis, so zooming, panning and the hover readout move together
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
 - a **date picker**: jump to any day and see its level, flow and temperature in one line
 - **times above a value**: type e.g. 250 cm and the chart marks every stretch above it in red, with a list of each time (dates, how long, peak). Tap one to jump there. For flow, ARSO's flood-stage values are offered as suggestions
@@ -23,7 +24,13 @@ ARSO has no gauge on the Ljubljanica at Zalog itself. The useful ones are:
 | **Šentjakob** (3570) | Sava | ~3 km | Just upstream of the confluence. A high Sava backs water up into the lower Ljubljanica, so it matters for Zalog too. |
 | **Moste I** (5078) | Ljubljanica | ~5.7 km | The last Ljubljanica gauge before Zalog. This is the station behind ARSO's `H5078` page. |
 
-Every station within 10 km of Zalog (plus Moste I) is recorded automatically. The "Stations nearby" section on the dashboard lists everything else ARSO publishes, with distances worked out from ARSO's coordinates.
+Every station within 10 km of Zalog (plus Moste I) is recorded automatically.
+
+### Groundwater
+
+ARSO also runs about 140 automatic groundwater wells ([map and tables](https://www.arso.gov.si/vode/podatki/podzem_amp/)). The nearest to Zalog is **Hrastje (0341)** (`G85040`), about 4 km west on the same aquifer (Ljubljansko polje). It reports hourly, but ARSO usually sends the readings about once a day.
+
+ARSO gives the level ("Nivo") in cm relative to the top of the well. The dashboard turns it into metres above sea level with the well's height from ARSO's [station sheet](https://meteo.arso.gov.si/uploads/probase/www/hidro/watercycle/text/sl/observation_sites/piezometers_wells/85040.pdf) (287.40 m), so it can be compared with any other height, for example a cellar floor. The record high (276.63 m, October 1973) and low (271.61 m, February 1989) come from the same sheet. History starts when this project began recording the well. ARSO's groundwater archive (`hidarhiv/pod_arhiv_tab.php`) could add older years once its archive site is back up. The "Stations nearby" section on the dashboard lists everything else ARSO publishes, with distances worked out from ARSO's coordinates.
 
 ## How it works
 
@@ -34,10 +41,11 @@ GitHub Actions (every 30 min)            GitHub Pages
   scripts/update.py                        site/ + data/
     ├─ ARSO latest-readings XML   ──►  data branch  ──►  https://bizmar.github.io/RiverChart/
     ├─ ARSO 1-day / 30-day tables
+    ├─ ARSO groundwater well table (Hrastje)
     └─ ARSO daily archive (hidarhiv)
 ```
 
-- `scripts/arso.py` downloads and parses the three ARSO sources. It uses only the Python standard library.
+- `scripts/arso.py` downloads and parses the ARSO sources. It uses only the Python standard library.
 - `scripts/update.py` merges new readings into plain CSV files. They are kept on the `data` branch, which is rewritten as a single commit each time so the repository stays small.
 - `site/` is a static page (HTML + JavaScript + [Apache ECharts](https://echarts.apache.org/)) that reads those CSV files directly.
 
@@ -56,9 +64,10 @@ stations.json               all ARSO stations + latest reading, nearest first
 <id>/meta.json              what is stored for a tracked station
 <id>/daily.csv              date,level,flow,temp,src  (src a = ARSO archive, m = mean of live data)
 <id>/live/YYYY-MM.csv       time (UTC),level,flow,temp  - measured readings, 10-60 min apart
+G85040/...                  the groundwater well, same layout (level = ARSO's "Nivo", hourly)
 ```
 
-Units: level in cm (on the gauge's own scale, not above sea level), flow in m³/s, temperature in °C.
+Units: level in cm (on the gauge's own scale, not above sea level), flow in m³/s, temperature in °C. Groundwater level in cm relative to the well top, as ARSO publishes it; `stations.json` also gives the latest value in metres above sea level.
 
 ## Setup (one-time)
 

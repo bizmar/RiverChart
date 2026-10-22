@@ -73,9 +73,33 @@ def main(out: Path) -> None:
         (d / "meta.json").write_text(json.dumps({"id": sid, "river": river, "place": place,
                                                  "live_months": sorted(months), "daily_from": "1991-01-01"}))
 
+    # Groundwater well: ARSO's "Nivo" in cm below the well top, slow and smooth, rising for weeks after wet spells.
+    gw_level = lambda t: -1450 + 120 * math.cos((t.timetuple().tm_yday - 340) / 365 * 2 * math.pi) + sum(  # noqa: E731
+        1.6 * h * math.exp(-max(0.0, (t - s).total_seconds()) / 86400 / 40) for s, h, d in floods[-400:] if t >= s)
+    d = out / "G85040"
+    (d / "live").mkdir(parents=True, exist_ok=True)
+    rows, day = ["date,level,flow,temp,src"], datetime(now.year - 10, 1, 1, tzinfo=timezone.utc)
+    while day < now:
+        rows.append(f"{day:%Y-%m-%d},{gw_level(day):.0f},,12.3,{'a' if day.year < now.year - 1 else 'm'}")
+        day += timedelta(days=1)
+    (d / "daily.csv").write_text("\n".join(rows) + "\n")
+    months, t = {}, now - timedelta(days=75)
+    while t <= now - timedelta(hours=18):  # ARSO's newest groundwater hours arrive late
+        months.setdefault(f"{t:%Y-%m}", []).append(f"{t:%Y-%m-%dT%H:%MZ},{gw_level(t) + rng.gauss(0, 0.6):.0f},,12.4")
+        t += timedelta(hours=1)
+    for m, lines in months.items():
+        (d / "live" / f"{m}.csv").write_text("time,level,flow,temp\n" + "\n".join(lines) + "\n")
+    (d / "meta.json").write_text(json.dumps({"id": "G85040", "river": "Groundwater", "place": "Hrastje (0341)",
+                                             "live_months": sorted(months), "daily_from": rows[1][:10]}))
+    last_t, last_v = lines[-1].split(",")[:2]
+    groundwater = {"id": "G85040", "name": "Hrastje (0341)", "aquifer": "Ljubljansko polje", "lat": 46.06951, "lon": 14.56205,
+                   "datum": 287.40, "surface": 287.00, "record_high": {"value": 276.63, "date": "1973-10-02"},
+                   "record_low": {"value": 271.61, "date": "1989-02-24"}, "dist_km": 4.07,
+                   "time": last_t, "level": round(287.40 + float(last_v) / 100, 2), "temp": 12.4}
+
     (out / "stations.json").write_text(json.dumps({
         "generated": now.strftime("%Y-%m-%dT%H:%MZ"), "home": {"name": "Zalog", "lat": 46.07, "lon": 14.615},
-        "default": "5078", "radius_km": 10, "stations": catalogue}, ensure_ascii=False, indent=1))
+        "default": "5078", "radius_km": 10, "groundwater": groundwater, "stations": catalogue}, ensure_ascii=False, indent=1))
     print(f"Sample data written to {out}")
 
 

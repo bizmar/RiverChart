@@ -8,7 +8,10 @@ const METRICS = {
   level: { label: "Water level", short: "Level", unit: "cm", digits: 0, color: "--c-level" },
   flow: { label: "Flow", short: "Flow", unit: "m³/s", digits: 1, color: "--c-flow" },
   temp: { label: "Water temperature", short: "Temperature", unit: "°C", digits: 1, color: "--c-temp" },
+  // From the nearest groundwater well, whichever river station is picked.
+  ground: { label: "Groundwater", short: "Groundwater", button: "Ground", unit: "m a.s.l.", digits: 2, color: "--c-ground" },
 };
+const RIVER = ["level", "flow", "temp"];
 const RANGES = [
   { id: "2d", label: "2 d", title: "Last 2 days", days: 2 },
   { id: "7d", label: "7 d", title: "Last week", days: 7 },
@@ -29,6 +32,7 @@ const state = {
   window: [0, 0],
   picked: null, // a day chosen with the date picker, "YYYY-MM-DD"
   above: {}, // "times above" values per measurement, e.g. { level: 150 }
+  gw: null, // the groundwater well from stations.json
 };
 
 const $ = (id) => document.getElementById(id);
@@ -151,6 +155,18 @@ async function loadMonths(id, months) {
   return todo.length > 0;
 }
 
+// Where a measurement's data lives: the groundwater well, or the picked river station.
+const sourceId = (metric) => (metric === "ground" ? state.gw?.id : state.station);
+// ARSO's well readings are cm relative to the well top; shown as metres above sea level.
+const gwMetres = (cm) => Math.round((state.gw.datum + cm / 100) * 100) / 100;
+
+function seriesFor(id) {
+  if (id !== "ground") return buildPoints(state.cache[state.station], id);
+  const c = state.cache[state.gw?.id];
+  if (!c?.meta) return [];
+  return buildPoints(c, "level").map((p) => (p[1] == null ? p : [p[0], gwMetres(p[1]), ...p.slice(2)]));
+}
+
 // One line: measured readings where they are loaded, daily means (ARSO's archive or our own) for every other day.
 function buildPoints(c, metric) {
   const live = [...c.live.keys()].sort().flatMap((m) => c.live.get(m)).filter((r) => r[metric] != null);
@@ -178,12 +194,15 @@ const ALL = "all";
 let chart;
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-// Measurements this station has any data for.
+// Measurements this station has any data for, plus the groundwater well when it has data.
 function available() {
   const st = state.byId[state.station];
   const c = state.cache[state.station];
   const live = c ? [...c.live.values()].flat() : [];
-  return Object.keys(METRICS).filter((k) => st?.[k] != null || c?.daily?.some((d) => d[k] != null) || live.some((r) => r[k] != null));
+  const has = RIVER.filter((k) => st?.[k] != null || c?.daily?.some((d) => d[k] != null) || live.some((r) => r[k] != null));
+  const g = state.cache[state.gw?.id];
+  if (g?.meta && (g.daily.some((d) => d.level != null) || [...g.live.values()].flat().some((r) => r.level != null))) has.push("ground");
+  return has;
 }
 const panels = () => (state.metric === ALL ? available() : [state.metric]);
 // Phone layout: TradingView-style dense chart with the value scale on the right.
@@ -198,9 +217,11 @@ function inkOn(hex) {
 }
 
 function buildAllSeries() {
-  const c = state.cache[state.station];
-  state.series = Object.fromEntries(panels().map((id) => [id, buildPoints(c, id)]));
+  state.series = Object.fromEntries(panels().map((id) => [id, seriesFor(id)]));
 }
+
+// Panel title: the groundwater panel says where it is measured, as it is not the picked station.
+const panelTitle = (id) => (id === "ground" ? `Groundwater at ${state.gw.name.replace(/\s*\(.*\)$/, "")}` : METRICS[id].label);
 
 function chartOption() {
   const ids = panels();
@@ -228,7 +249,7 @@ function chartOption() {
     textStyle: { fontFamily: css("--font") },
     axisPointer: { link: [{ xAxisIndex: "all" }], lineStyle: { color: muted, width: 1 }, label: { show: false } },
     title: titled ? ids.map((id, i) => ({
-      text: `{k|━━} ${METRICS[id].label} (${METRICS[id].unit})`,
+      text: `{k|━━} ${panelTitle(id)} (${METRICS[id].unit})`,
       left: compact ? 4 : 8,
       top: panelTop(i) - (compact ? 19 : 26),
       textStyle: { fontSize: compact ? 11 : 13, fontWeight: 600, color: ink2, rich: { k: { color: color(id), fontSize: compact ? 9 : 10 } } },
@@ -345,6 +366,16 @@ function panelLines(id, compact, last) {
       label: { position: "end", formatter: fmtVal(last[1], id), backgroundColor: color, color: inkOn(color), padding: [2, 4], borderRadius: 2, fontSize: 10, fontWeight: 600 },
     });
   }
+  // The well's record high and low (shown when the view reaches them, e.g. with a "times above" value).
+  if (id === "ground" && state.gw) {
+    for (const [rec, word] of [[state.gw.record_high, "record high"], [state.gw.record_low, "record low"]]) {
+      data.push({
+        yAxis: rec.value,
+        lineStyle: { color: css("--muted"), type: "dotted", width: 1.5 },
+        label: { position: "insideEndTop", formatter: `${word} ${fmtVal(rec.value, id)} (${rec.date.slice(0, 4)})`, color: css("--ink-2"), fontSize: compact ? 10 : 11 },
+      });
+    }
+  }
   const above = state.above[id];
   if (id === aboveMetric() && above != null) {
     data.push({
@@ -386,6 +417,7 @@ function renderChart(keepWindow) {
   chartCompact = isCompact();
   const win = keepWindow ? currentWindow() : rangeWindow(state.range);
   $("chart").classList.toggle("multi", panels().length > 1);
+  $("chart").classList.toggle("multi-4", panels().length > 3);
   chart.resize();
   chartHeight = $("chart").clientHeight;
   chart.setOption(chartOption(), { notMerge: true });
@@ -403,20 +435,13 @@ async function onWindow(s, e) {
   state.window = [s, e];
   renderWindowStats();
   if ($("table").closest("details").open) renderTable();
-  // Zoomed into an older stretch: fetch the measured months it covers.
-  const c = state.cache[state.station];
-  if (lazyBusy || !c || e - s > 120 * DAY) return;
-  const want = c.meta.live_months.filter((m) => {
-    const [y, mo] = m.split("-").map(Number);
-    return Date.UTC(y, mo, 1) > s - DAY && Date.UTC(y, mo - 1, 1) < e + DAY;
-  });
-  if (!want.some((m) => !c.live.has(m))) return;
+  // Zoomed into an older stretch: fetch the measured months it covers (river station and groundwater well).
+  if (lazyBusy || e - s > 120 * DAY) return;
+  const todo = [...new Set(panels().map(sourceId))].map((id) => [id, missingMonths(id, s, e)]).filter(([, m]) => m.length);
+  if (!todo.length) return;
   lazyBusy = true;
   try {
-    // Load contiguous months back to what we have, so the live line has no holes.
-    const first = c.meta.live_months.indexOf(want[0]);
-    const loadedFirst = Math.min(...[...c.live.keys()].map((m) => c.meta.live_months.indexOf(m)));
-    if (await loadMonths(state.station, c.meta.live_months.slice(first, Math.max(loadedFirst, first + 1)))) {
+    if ((await Promise.all(todo.map(([id, m]) => loadMonths(id, m)))).some(Boolean)) {
       buildAllSeries();
       chart.setOption({ series: panels().map((id) => ({ data: state.series[id] })) });
       renderAbove();
@@ -425,6 +450,21 @@ async function onWindow(s, e) {
   } finally {
     lazyBusy = false;
   }
+}
+
+// Measured months of a station that the window needs, contiguous back to what is loaded so the line has no holes.
+function missingMonths(id, s, e) {
+  const c = state.cache[id];
+  if (!c?.meta) return [];
+  const months = c.meta.live_months;
+  const want = months.filter((m) => {
+    const [y, mo] = m.split("-").map(Number);
+    return Date.UTC(y, mo, 1) > s - DAY && Date.UTC(y, mo - 1, 1) < e + DAY;
+  });
+  if (!want.some((m) => !c.live.has(m))) return [];
+  const first = months.indexOf(want[0]);
+  const loadedFirst = Math.min(...[...c.live.keys()].map((m) => months.indexOf(m)));
+  return months.slice(first, Math.max(loadedFirst, first + 1));
 }
 
 function visiblePoints(id) {
@@ -585,20 +625,25 @@ function renderDayReadout() {
   const box = $("day-readout");
   box.replaceChildren();
   box.hidden = !state.picked;
-  const c = state.cache[state.station];
+  // Groundwater alone: the well's day. Otherwise the river station's day, plus the well in the stacked view.
+  const groundOnly = state.metric === "ground";
+  const c = state.cache[groundOnly ? state.gw?.id : state.station];
   if (!state.picked || !c?.daily) return;
   box.append(el("b", null, dayFmt.format(dayBounds(state.picked)[0])), ": ");
   const row = c.daily.find((d) => d.date === state.picked);
-  const vals = row ? Object.keys(METRICS).filter((id) => row[id] != null) : [];
+  const vals = row ? RIVER.filter((id) => !groundOnly && row[id] != null).map((id) => [id, row[id]]) : [];
+  const gwRow = panels().includes("ground") ? state.cache[state.gw?.id]?.daily?.find((d) => d.date === state.picked) : null;
+  if (gwRow?.level != null) vals.push(["ground", gwMetres(gwRow.level)]);
   if (!vals.length) {
     box.append(noDataReason(c, state.picked));
     return;
   }
-  vals.forEach((id, i) => {
+  vals.forEach(([id, v], i) => {
     if (i) box.append(" · ");
-    box.append(`${METRICS[id].short} `, el("b", null, `${fmtVal(row[id], id)} ${METRICS[id].unit}`));
+    box.append(`${METRICS[id].short} `, el("b", null, `${fmtVal(v, id)} ${METRICS[id].unit}`));
   });
-  box.append(el("span", "note", row.src === "a" ? " · daily mean, validated by ARSO" : " · daily mean of the measured readings"));
+  const src = (groundOnly ? gwRow : row)?.src;
+  box.append(el("span", "note", src === "a" ? " · daily mean, validated by ARSO" : " · daily mean of the measured readings"));
 }
 
 function noDataReason(c, iso) {
@@ -663,10 +708,14 @@ function renderAbove() {
   const dl = $("above-suggest");
   dl.replaceChildren();
   const stages = id === "flow" ? state.byId[state.station]?.thresholds?.flow : null;
-  for (const [stage, v] of Object.entries(stages ?? {})) {
+  const suggest = Object.entries(stages ?? {}).map(([stage, v]) => [v, `Flood stage ${stage}`]);
+  if (id === "ground" && state.gw) {
+    suggest.push([state.gw.record_high.value, `Record high (${state.gw.record_high.date.slice(0, 4)})`]);
+  }
+  for (const [v, label] of suggest) {
     const o = el("option");
     o.value = v;
-    o.label = `Flood stage ${stage}`;
+    o.label = label;
     dl.append(o);
   }
 
@@ -735,7 +784,7 @@ function renderControls() {
   const metrics = $("metrics");
   metrics.replaceChildren();
   const has = available();
-  const options = [...Object.entries(METRICS).map(([id, m]) => [id, m.short, m.label]), [ALL, "All", "All three, stacked"]];
+  const options = [...Object.entries(METRICS).map(([id, m]) => [id, m.button ?? m.short, id === "ground" && state.gw ? panelTitle(id) : m.label]), [ALL, "All", "Everything, stacked"]];
   for (const [id, label, title] of options) {
     const b = el("button", null, label);
     b.type = "button";
@@ -786,30 +835,20 @@ function renderHero() {
   const st = state.byId[state.station];
   // In the stacked view the headline number is the first shown measurement (normally the level).
   const hm = state.metric === ALL ? panels()[0] ?? "level" : state.metric;
+  if (hm === "ground") return renderGroundHero();
   const m = METRICS[hm];
   $("hero-label").textContent = `${m.label} · ${st.river}, ${st.place}`;
   $("hero-value").textContent = fmtVal(st[hm], hm);
   $("hero-unit").textContent = st[hm] == null ? "" : m.unit;
 
-  // Change over the last 24 hours, from the measured readings.
   const trend = $("hero-trend");
-  trend.replaceChildren();
   const c = state.cache[state.station];
-  const live = c ? [...c.live.keys()].sort().flatMap((k) => c.live.get(k)).filter((r) => r[hm] != null) : [];
-  if (live.length > 1) {
-    const last = live[live.length - 1];
-    const target = last.t - DAY;
-    const before = live.reduce((best, r) => (Math.abs(r.t - target) < Math.abs(best.t - target) ? r : best), live[0]);
-    if (Math.abs(before.t - target) < 2 * 3600000) {
-      const d = last[hm] - before[hm];
-      if (d === 0) trend.textContent = "No change in the last 24 h";
-      else trend.append(el("span", d > 0 ? "up" : "down", `${d > 0 ? "▲ +" : "▼ −"}${fmtVal(Math.abs(d), hm)} ${m.unit}`), " in the last 24 h");
-    }
-  }
+  renderTrend(trend, liveRows(c).filter((r) => r[hm] != null).map((r) => [r.t, r[hm]]), hm);
 
   const stats = $("hero-stats");
   stats.replaceChildren();
-  for (const [id, mm] of Object.entries(METRICS)) {
+  for (const id of RIVER) {
+    const mm = METRICS[id];
     if (id === hm || st[id] == null) continue;
     const dd = el("dd", null, fmtVal(st[id], id));
     dd.append(el("small", null, mm.unit));
@@ -836,6 +875,63 @@ function renderHero() {
   }
 }
 
+const liveRows = (c) => (c ? [...c.live.keys()].sort().flatMap((k) => c.live.get(k)) : []);
+
+// Change over the last 24 hours, from measured [time, value] pairs (oldest first).
+function renderTrend(box, live, metric) {
+  box.replaceChildren();
+  if (live.length < 2) return;
+  const [lastT, lastV] = live[live.length - 1];
+  const target = lastT - DAY;
+  const before = live.reduce((best, r) => (Math.abs(r[0] - target) < Math.abs(best[0] - target) ? r : best), live[0]);
+  if (Math.abs(before[0] - target) >= 2 * 3600000) return;
+  const d = Math.round((lastV - before[1]) * 100) / 100;
+  // A change in groundwater is plain metres, not metres above sea level.
+  const unit = metric === "ground" ? "m" : METRICS[metric].unit;
+  if (d === 0) box.textContent = "No change in the last 24 h";
+  else box.append(el("span", d > 0 ? "up" : "down", `${d > 0 ? "▲ +" : "▼ −"}${fmtVal(Math.abs(d), metric)} ${unit}`), " in the last 24 h");
+}
+
+// Headline for the groundwater well: where the water table is, and how far below its record high.
+function renderGroundHero() {
+  const gw = state.gw;
+  const m = METRICS.ground;
+  $("hero-label").textContent = `Groundwater · ${gw.name}, ${distLabel(gw)}`;
+  $("hero-value").textContent = fmtVal(gw.level, "ground");
+  $("hero-unit").textContent = gw.level == null ? "" : m.unit;
+  const trend = $("hero-trend");
+  const live = liveRows(state.cache[gw.id]).filter((r) => r.level != null).map((r) => [r.t, gwMetres(r.level)]);
+  renderTrend(trend, live, "ground");
+  if (gw.level == null) trend.textContent = "No recent reading from ARSO. The chart shows the recorded history.";
+
+  const stats = $("hero-stats");
+  stats.replaceChildren();
+  const metres = (v) => { const dd = el("dd", null, fmtVal(v, "ground")); dd.append(el("small", null, "m")); return dd; };
+  if (gw.level != null) stats.append(wrapStat("Below ground at the well", metres(gw.surface - gw.level)));
+  for (const [label, rec] of [["Record high", gw.record_high], ["Record low", gw.record_low]]) {
+    const dd = metres(rec.value);
+    dd.append(el("small", "ago", shortDayFmt.format(dayBounds(rec.date)[0])));
+    stats.append(wrapStat(label, dd));
+  }
+  if (gw.time) {
+    const t = Date.parse(gw.time);
+    const dd = el("dd", null, timeFmt.format(t));
+    dd.append(el("small", "ago", ago(t)));
+    stats.append(wrapStat("Measured", dd));
+  }
+
+  const status = $("status");
+  status.replaceChildren();
+  status.hidden = gw.level == null;
+  if (gw.level != null) {
+    const below = gw.record_high.value - gw.level;
+    status.append(el("span", null, below > 0
+      ? `${fmtVal(below, "ground")} m below the record high (${gw.record_high.date.slice(0, 4)}).`
+      : `At or above the record high (${gw.record_high.date.slice(0, 4)}).`));
+    status.append(el("span", "thresholds", `${gw.aquifer} · ARSO sends this well's readings about once a day.`));
+  }
+}
+
 function wrapStat(label, dd) {
   const d = el("div");
   d.append(el("dt", null, label), dd);
@@ -845,6 +941,23 @@ function wrapStat(label, dd) {
 function renderNearby() {
   const grid = $("nearby");
   grid.replaceChildren();
+  if (state.gw) {
+    const gw = state.gw;
+    const card = el("button", "station-card tracked");
+    card.type = "button";
+    card.onclick = () => { state.metric = "ground"; update(true); window.scrollTo({ top: 0, behavior: "smooth" }); };
+    const meta = el("div", "meta", distLabel(gw));
+    meta.append(el("span", "extra", ` · groundwater well · ${gw.aquifer}`));
+    card.append(el("div", "name", `Groundwater · ${gw.name}`), meta);
+    const vals = el("div", "vals");
+    if (gw.level != null) {
+      const v = el("span");
+      v.append(el("b", null, fmtVal(gw.level, "ground")), document.createTextNode(` ${METRICS.ground.unit}`));
+      vals.append(v);
+    }
+    card.append(vals);
+    grid.append(card);
+  }
   const near = state.stations.filter((s) => s.dist_km != null && s.dist_km <= 30).slice(0, 12);
   for (const st of near) {
     const card = el(st.tracked ? "button" : "div", "station-card" + (st.tracked ? " tracked" : ""));
@@ -856,7 +969,8 @@ function renderNearby() {
     meta.append(el("span", "extra", ` · station ${st.id}${st.tracked ? " · history recorded" : ""}`));
     card.append(el("div", "name", `${st.river} · ${st.place}`), meta);
     const vals = el("div", "vals");
-    for (const [id, m] of Object.entries(METRICS)) {
+    for (const id of RIVER) {
+      const m = METRICS[id];
       if (st[id] == null) continue;
       const v = el("span");
       v.append(el("b", null, fmtVal(st[id], id)), document.createTextNode(` ${m.unit}`));
@@ -902,7 +1016,8 @@ async function update(keepWindow = false) {
   renderStationChips();
   $("chart").classList.add("loading");
   try {
-    const c = await stationData(state.station);
+    // The groundwater well is a bonus: the river station must load, the well may fail.
+    await Promise.all([stationData(state.station), state.gw && stationData(state.gw.id).catch(() => delete state.cache[state.gw.id])]);
     const has = available();
     if (state.metric === ALL ? has.length < 2 : !has.includes(state.metric)) state.metric = has[0] ?? "level";
     buildAllSeries();
@@ -967,6 +1082,7 @@ async function init() {
   }
   state.stations = catalogue.stations;
   state.byId = Object.fromEntries(catalogue.stations.map((s) => [s.id, s]));
+  state.gw = catalogue.groundwater ?? null;
   state.station = state.byId[catalogue.default]?.tracked ? catalogue.default : catalogue.stations.find((s) => s.tracked)?.id;
   readHash();
   const gen = Date.parse(catalogue.generated);
