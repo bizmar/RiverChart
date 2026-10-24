@@ -1,0 +1,13 @@
+{
+ "id": "G85040",
+ "river": "Groundwater",
+ "place": "Hrastje (0341)",
+ "live_months": [
+  "2026-09",
+  "2026-10"
+ ],
+ "daily_from": "2026-09-22",
+ "daily_to": "2026-10-23",
+ "archive_to": null,
+ "updated": "2026-10-24T17:51Z"
+}
