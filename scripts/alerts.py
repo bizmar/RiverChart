@@ -50,6 +50,8 @@ STALE_HOURS = 6
 
 FLOOD_WORDS = re.compile(r"prvi|drug|tretj|visokovod|poplav", re.I)
 COLOURS = {"normal": "#2A78D6", "heads-up": "#FAB219", "warning": "#EC835A", "urgent": "#D03B3B"}
+# River-wave notification icons in the same colours, published with the site (site/icons).
+icon = lambda lvl: f"{SITE}icons/alert-{lvl}.png"  # noqa: E731
 
 
 # --------------------------------------------------------------------------- data
@@ -146,25 +148,26 @@ def level(on: dict) -> str:
 def messages(snap: dict, before: dict, on: dict) -> list[dict]:
     """Notifications for rules that just changed. Warnings break through Focus; heads-ups do not."""
     out = []
-    add = lambda rule, title, text, urgent=False: out.append(  # noqa: E731
-        {"rule": rule, "title": title, "text": f"{text}\n{SITE}", "groupType": "riverchart", "timeSensitive": urgent})
+    add = lambda rule, title, text, lvl="normal", urgent=False: out.append(  # noqa: E731
+        {"rule": rule, "title": title, "text": f"{text}\n{SITE}", "groupType": "riverchart", "timeSensitive": urgent,
+         "iconUrl": icon(lvl)})
     turned_on = lambda k: on.get(k) and not before.get(k)  # noqa: E731
     turned_off = lambda k: before.get(k) and not on.get(k)  # noqa: E731
     cm, rise = fmt(snap["lj_cm"]), fmt(snap["lj_change"], signed=True)
     if turned_on("flood"):
-        add("flood", "Flood stage", "ARSO reports a flood stage. " + "; ".join(snap["floods"]) + ".", urgent=True)
+        add("flood", "Flood stage", "ARSO reports a flood stage. " + "; ".join(snap["floods"]) + ".", "urgent", urgent=True)
     if turned_off("flood"):
         add("flood", "Flood stage over", "ARSO no longer reports a flood stage on the Ljubljanica or the Sava.")
     if turned_on("high") and not turned_on("flood"):  # a flood stage already says it
         add("high", "Ljubljanica high", f"Moste I: {cm} cm ({rise} cm in {RISE_HOURS} h), above {WARN_CM} cm. "
-            "Groundwater at Zalog was at the reference level when the river was this high.", urgent=True)
+            "Groundwater at Zalog was at the reference level when the river was this high.", "warning", urgent=True)
     if turned_off("high"):
         add("high", "All clear", f"Ljubljanica back to {cm} cm at Moste I.")
     if turned_on("rise") and not on.get("high"):
-        add("rise", "Ljubljanica rising fast", f"Moste I: {rise} cm in {RISE_HOURS} h, now {cm} cm.")
+        add("rise", "Ljubljanica rising fast", f"Moste I: {rise} cm in {RISE_HOURS} h, now {cm} cm.", "heads-up")
     if turned_on("gw_rise"):
         add("gw_rise", "Groundwater rising",
-            f"Hrastje: {fmt(snap['gw_change'], 2, True)} m in {GW_RISE_DAYS} days, now {fmt(snap['gw_m'], 2)} m.")
+            f"Hrastje: {fmt(snap['gw_change'], 2, True)} m in {GW_RISE_DAYS} days, now {fmt(snap['gw_m'], 2)} m.", "heads-up")
     if turned_on("stale"):
         add("stale", "No new river data",
             f"ARSO has sent no Ljubljanica readings for over {STALE_HOURS} h, so RiverChart cannot see the river.")
@@ -309,7 +312,7 @@ def main() -> int:
         url = os.environ.get("NOTIFY_URL", "").strip()
         notify = Notify(url, log) if url else None
         if notify and args.test:
-            notify.send({"title": "RiverChart test", "text": f"Alerts are set up. You will hear from RiverChart when the river or groundwater needs attention.\n{SITE}"})
+            notify.send({"title": "RiverChart test", "iconUrl": icon("normal"), "text": f"Alerts are set up. You will hear from RiverChart when the river or groundwater needs attention.\n{SITE}"})
         run(args.store, notify, os.environ.get("NOTIFY_BEACON_URL", "").strip() or None, log)
     except Exception as e:  # noqa: BLE001 - alerts must never break the data update
         log(f"alerts failed: {type(e).__name__}: {e}")

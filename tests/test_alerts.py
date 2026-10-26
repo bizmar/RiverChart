@@ -101,6 +101,7 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(self.gw.sent(), ["Ljubljanica high"])
         msg = next(b for p, _, b in self.gw.calls if p.startswith("/notify-json/"))
         self.assertTrue(msg["timeSensitive"])
+        self.assertEqual(msg["iconUrl"], "https://bizmar.github.io/RiverChart/icons/alert-warning.png")
         self.assertEqual(state["ids"]["activity"], "LA000001")
         live = self.gw.paths("/live-activity")
         self.assertEqual(live[0][0], "/live-activity/ABC12345")
