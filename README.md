@@ -17,6 +17,20 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 - every nearby ARSO gauge, sorted by distance from Zalog
 - light and dark mode that follows your device, with a manual override, and a dense chart-first layout on phones
 
+## Phone alerts
+
+Alerts, a Live Activity and widgets on an iPhone, through the free [Notify!](https://getnotifyapp.com) app. `scripts/alerts.py` runs after every data update:
+
+| Level | When | How |
+|---|---|---|
+| Heads-up | Ljubljanica at Moste I rises 40 cm or more in 6 h, or groundwater at Hrastje rises 0.30 m or more in 3 days | notification |
+| Warning | Ljubljanica at Moste I at 200 cm or more (both 2023 reference days were above it) | Time Sensitive notification, and a Live Activity until it is over |
+| Urgent | ARSO reports a flood stage on the Ljubljanica (Moste I) or the Sava (Šentjakob) | Time Sensitive notification and Live Activity |
+
+Each alert is sent once. A warning clears only when the river is back under 180 cm, so a level hovering around 200 cm does not keep pinging, and then an "All clear" follows. A notice also comes when ARSO sends no readings for 6 hours, and again when they are back. A Lock Screen widget and a Home Screen widget show the latest values all the time. The thresholds are at the top of `scripts/alerts.py`.
+
+Setup: in Notify!, copy the device's webhook address (it ends in `?token=...`) and add it under **Settings → Secrets and variables → Actions → New repository secret** as `NOTIFY_URL`. Optionally create a beacon in Notify! (expected every 60 minutes, grace 180) and add its ping address as `NOTIFY_BEACON_URL`. The app then alerts by itself if these updates stop. Check it with **Actions → Update data and publish → Run workflow → Send a test notification**.
+
 ## Which gauge is closest to Zalog?
 
 ARSO has no gauge on the Ljubljanica at Zalog itself. The useful ones are:
@@ -52,6 +66,7 @@ GitHub Actions (every 30 min)            GitHub Pages
 ```
 
 - `scripts/arso.py` downloads and parses the ARSO sources. It uses only the Python standard library.
+- `scripts/alerts.py` sends the phone alerts (see above).
 - `scripts/update.py` merges new readings into plain CSV files. They are kept on the `data` branch, which is rewritten as a single commit each time so the repository stays small.
 - `site/` is a static page (HTML + JavaScript + [Apache ECharts](https://echarts.apache.org/)) that reads those CSV files directly.
 

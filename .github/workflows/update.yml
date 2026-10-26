@@ -19,6 +19,10 @@ on:
         description: Print samples of the raw ARSO responses
         type: boolean
         default: false
+      test_alert:
+        description: Send a test notification to the phone (Notify!)
+        type: boolean
+        default: false
   push:
     branches: [main]
 
@@ -65,6 +69,15 @@ jobs:
           fi
           python3 scripts/update.py --store store --archive "$archive" "${extra[@]}" ${{ inputs.debug && '--debug' || '' }}
 
+      # Notifications, Live Activity and widgets on the phone. Never fails the update.
+      - name: Phone alerts (Notify!)
+        if: steps.fetch.outcome == 'success'
+        continue-on-error: true
+        env:
+          NOTIFY_URL: ${{ secrets.NOTIFY_URL }}
+          NOTIFY_BEACON_URL: ${{ secrets.NOTIFY_BEACON_URL }}
+        run: python3 scripts/alerts.py --store store ${{ inputs.test_alert && '--test' || '' }}
+
       # The data branch is rewritten as a single commit each time, so the repository
       # does not grow with every update. The files themselves keep the full history.
       - name: Save data
@@ -82,7 +95,7 @@ jobs:
         run: |
           mkdir -p _site/data
           cp -r site/. _site/
-          rsync -a --exclude .git store/ _site/data/
+          rsync -a --exclude .git --exclude alerts.json store/ _site/data/
           # Cache-busting: tag app.js and style.css with the commit, so a new page never runs with old cached code.
           v="${GITHUB_SHA::7}"
           sed -i -e "s#src=\"app.js\"#src=\"app.js?v=$v\"#" -e "s#href=\"style.css\"#href=\"style.css?v=$v\"#" _site/index.html
