@@ -1,0 +1,15 @@
+{
+ "active": {
+  "high": false,
+  "rise": false,
+  "gw_rise": false,
+  "flood": false,
+  "stale": false
+ },
+ "level": "normal",
+ "checked": "2026-10-31T14:40Z",
+ "ids": {
+  "widget": "WG12VJBP",
+  "screen": "SWO5U6YJ"
+ }
+}
