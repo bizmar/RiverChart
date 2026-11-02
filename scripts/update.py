@@ -10,6 +10,7 @@ The store is a plain folder of CSV/JSON files that the dashboard reads directly:
     G<id>/...                  the same for the groundwater well (level = ARSO's "Nivo", cm below the well top)
     VOKA-<id>/daily.csv        VOKA SNAGA's daily groundwater levels at Zalog (m above sea level), imported once
     VOKA-<id>/estimate.csv     the Zalog well estimated from the rivers, for the days after its data ends
+    rain/daily.csv, forecast.csv  daily rain over the Ljubljanica and Sava catchments (Open-Meteo)
 
 Run regularly (GitHub Actions does it every 30 minutes):
 
@@ -29,9 +30,11 @@ import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import arso
 import estimate
+import rain
 import voka
 
 # The rivers the Zalog estimate is made from: Ljubljanica at Moste I and Sava at Šentjakob.
@@ -440,6 +443,7 @@ def main() -> int:
 
     groundwater = update_groundwater(args.store, log)
     zalog = zalog_well(args.store, log)
+    rainfall = rain.update(args.store, log, datetime.now(ZoneInfo("Europe/Ljubljana")).date())
 
     write_json(args.store / "stations.json", {
         "generated": iso(datetime.now(timezone.utc)),
@@ -448,6 +452,7 @@ def main() -> int:
         "radius_km": RADIUS_KM,
         "groundwater": groundwater,
         "groundwater_zalog": zalog,
+        "rain": rainfall,
         "stations": [
             {
                 "id": s["id"],

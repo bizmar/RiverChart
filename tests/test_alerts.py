@@ -20,7 +20,7 @@ WEBHOOK = "https://push.getnotifyapp.com/notify/ABC12345?token=secret123"
 
 
 def write_store(root: Path, level: float, rise: float = 0, gw_cm: float = -1448, flow_class="običajni pretok", age_h=0.5,
-                zalog=None, zalog_date="2026-11-06"):
+                zalog=None, zalog_date="2026-11-06", rain_mm=None, rain_date="2026-11-06"):
     """A store with the Ljubljanica at `level` cm, `rise` cm higher than 6 h ago."""
     t = NOW - timedelta(hours=age_h)
     iso = lambda x: x.strftime("%Y-%m-%dT%H:%MZ")  # noqa: E731
@@ -34,6 +34,7 @@ def write_store(root: Path, level: float, rise: float = 0, gw_cm: float = -1448,
         "groundwater": {"id": "G85040", "datum": 287.40, "level": round(287.40 + gw_cm / 100, 2)},
         "groundwater_zalog": {"reference": {"date": "2023-11-06", "value": 266.38}, "estimate": None if zalog is None else
                               {"last": {"date": zalog_date, "value": zalog}, "rmse": 0.22}},
+        "rain": None if rain_mm is None else {"updated": rain_date, "next3_mm": rain_mm},
         "stations": [
             {"id": "5078", "river": "Ljubljanica", "place": "Moste I", "time": iso(t), "level": level, "flow": 50.0,
              "flow_class": flow_class, "thresholds": {"flow": {"1": 230.0}}},
@@ -147,6 +148,26 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(self.gw.sent(), ["All clear"])
         self.assertTrue(self.gw.paths("/live-activity")[0][2]["end"])
         self.assertNotIn("activity", state["ids"])
+
+    def test_heavy_rain_forecast_is_a_heads_up(self):
+        self.run_at(level=120, rain_mm=12)
+        state = self.run_at(level=120, rain_mm=82)
+        self.assertEqual(self.gw.sent(), ["Heavy rain forecast"])
+        msg = next(b for p, _, b in self.gw.calls if p.startswith("/notify-json/"))
+        self.assertFalse(msg["timeSensitive"])
+        self.assertIn("About 82 mm over the next 3 days", msg["text"])
+        self.assertEqual(state["level"], "heads-up")
+        self.run_at(level=120, rain_mm=40)  # above the clear level: still on, nothing new
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=120, rain_mm=20)
+        self.run_at(level=120, rain_mm=75)  # re-armed: a new spell alerts again
+        self.assertEqual(self.gw.sent(), ["Heavy rain forecast"])
+
+    def test_old_rain_forecast_is_ignored(self):
+        self.run_at(level=120)
+        state = self.run_at(level=120, rain_mm=90, rain_date="2026-11-05")
+        self.assertEqual(self.gw.sent(), [])
+        self.assertNotIn("rain", state["active"])
 
     def test_old_zalog_estimate_is_ignored(self):
         self.run_at(level=120)
