@@ -25,7 +25,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import estimate
-from alerts import RIVER, SAVA, WARN_CLEAR_CM, WARN_CM, ZALOG_NEAR_CLEAR_M, ZALOG_NEAR_M
+import rain
+from alerts import RAIN_CLEAR_MM, RAIN_MM, RIVER, SAVA, WARN_CLEAR_CM, WARN_CM, ZALOG_NEAR_CLEAR_M, ZALOG_NEAR_M
 
 ZALOG = "VOKA-P-1gl"
 REFERENCE_DATE = "2023-11-06"
@@ -153,6 +154,17 @@ def main() -> int:
         rows.append((ref - m, ref - c, (f"{m:.1f} m below", f"{c:.1f} m below")))
     table("Zalog estimate near the reference (estimated from the rivers, each year unseen by its fit)", est, rows, "m",
           (ref - ZALOG_NEAR_M, ref - ZALOG_NEAR_CLEAR_M))
+
+    # Rain: what a forecast would have shown each day, taken as the rain that then fell (a perfect forecast,
+    # so real forecasts do somewhat worse).
+    daily = rain.read(s / "rain" / "daily.csv")
+    if daily:
+        ds = sorted(daily)
+        ahead = {d: sum(daily.get((date.fromisoformat(d) + timedelta(days=k)).isoformat(), 0) for k in range(3))
+                 for d in ds}
+        table("Heavy rain forecast (mm over today and the next 2 days, Ljubljanica and Sava catchments)", ahead,
+              [(v, v // 2, (f"{v} mm", f"{v // 2} mm")) for v in (50, 60, 70, 80, 90)], "mm",
+              (RAIN_MM, RAIN_CLEAR_MM))
     return 0
 
 

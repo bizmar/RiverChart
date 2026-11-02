@@ -31,12 +31,14 @@ import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 SITE = "https://bizmar.github.io/RiverChart/"
+LOCAL = ZoneInfo("Europe/Ljubljana")
 GATEWAY = "https://push.getnotifyapp.com"
 RIVER, SAVA = "5078", "3570"  # Ljubljanica at Moste I, Sava at Sentjakob
 
@@ -51,6 +53,10 @@ GW_RISE_M, GW_RISE_CLEAR_M, GW_RISE_DAYS = 0.30, 0.10, 3
 # The warning: in the backtest it caught all 3 events (2017, Aug and Nov 2023), 0-7 days ahead, with 2 false
 # alarms in 11 years. The estimate runs about 0.5 m low at the sharpest peaks, so it starts well below the reference.
 ZALOG_NEAR_M, ZALOG_NEAR_CLEAR_M = 0.70, 0.90
+# Rain forecast over the Ljubljanica and Sava catchments (scripts/rain.py), mm over today and the next 2 days.
+# In the backtest a forecast like this came 2-10 days before all 3 events, but also about twice a year with
+# nothing after it, so it is a heads-up.
+RAIN_MM, RAIN_CLEAR_MM = 70, 35
 # An estimate older than this many days is not used.
 ZALOG_MAX_AGE_DAYS = 2
 # ARSO's readings older than this: the dashboard can no longer see the river.
@@ -106,6 +112,7 @@ def snapshot(store: Path, now: datetime) -> dict:
                           + (f" ({st['flow']:.0f} m³/s)" if st.get("flow") else ""))
     stage1 = (lj.get("thresholds") or {}).get("flow", {}).get("1")
     zalog = cat.get("groundwater_zalog") or {}
+    rain = cat.get("rain") or {}  # a forecast from an earlier day is not used
     est, ref = zalog.get("estimate") or {}, zalog.get("reference") or {}
     fresh = est.get("last") and (now.date() - datetime.fromisoformat(est["last"]["date"]).date()).days <= ZALOG_MAX_AGE_DAYS
     return {
@@ -118,6 +125,7 @@ def snapshot(store: Path, now: datetime) -> dict:
         "gw_m": gw.get("level"),
         "gw_change": change_over(gw_m, GW_RISE_DAYS * 24),
         "floods": floods,
+        "rain_mm": rain.get("next3_mm") if rain.get("updated") == now.astimezone(LOCAL).date().isoformat() else None,
         "zalog_m": est["last"]["value"] if fresh else None,
         "zalog_err": est.get("rmse"),
         "zalog_ref": ref.get("value"),
@@ -148,6 +156,9 @@ def evaluate(snap: dict, active: dict) -> dict:
     if snap.get("zalog_m") is not None and snap.get("zalog_ref") is not None:
         below = snap["zalog_ref"] - snap["zalog_m"]
         on["zalog_near"] = below <= ZALOG_NEAR_M or (active.get("zalog_near", False) and below <= ZALOG_NEAR_CLEAR_M)
+    if snap.get("rain_mm") is not None:
+        mm = snap["rain_mm"]
+        on["rain"] = mm >= RAIN_MM or (active.get("rain", False) and mm >= RAIN_CLEAR_MM)
     on["flood"] = bool(snap["floods"])
     on["stale"] = snap["lj_time"] is None or snap["now"] - snap["lj_time"] > timedelta(hours=STALE_HOURS)
     return on
@@ -158,7 +169,7 @@ def level(on: dict) -> str:
         return "urgent"
     if on.get("zalog_near"):
         return "warning"
-    if on.get("high") or on.get("rise") or on.get("gw_rise"):
+    if on.get("high") or on.get("rise") or on.get("gw_rise") or on.get("rain"):
         return "heads-up"
     return "normal"
 
@@ -195,6 +206,11 @@ def messages(snap: dict, before: dict, on: dict) -> list[dict]:
     if turned_off("zalog_near"):
         add("zalog_near", "All clear",
             f"Estimated at about {fmt(snap['zalog_m'], 2)} m, more than {fmt(ZALOG_NEAR_CLEAR_M, 1)} m below the reference.")
+    if turned_on("rain"):
+        add("rain", "Heavy rain forecast",
+            f"About {fmt(snap['rain_mm'])} mm over the next 3 days on the Ljubljanica and Sava catchments. "
+            "Rain like this came before each high-groundwater event at Zalog since 2015, "
+            "but most times nothing followed.", "heads-up")
     if turned_on("stale"):
         add("stale", "No new river data",
             f"ARSO has sent no Ljubljanica readings for over {STALE_HOURS} h, so RiverChart cannot see the river.")

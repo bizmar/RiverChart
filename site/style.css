@@ -187,6 +187,7 @@ h1 { font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.01em; }
 .status { flex-wrap: wrap; }
 .status { column-gap: 14px; }
 .status .thresholds { color: var(--ink-2); }
+.status .rain-heavy { color: var(--up); font-weight: 600; }
 
 /* chart card */
 .card {

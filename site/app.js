@@ -1053,8 +1053,17 @@ function renderGroundHero() {
     status.append(el("span", "thresholds", `Zalog now (estimated from the rivers): ≈ ${fmtVal(est.last.value, "zalog")} m ±${fmtVal(est.rmse, "zalog")}, ` +
       (gap > 0 ? `${fmtVal(gap, "zalog")} m below the reference.` : `at or above the reference.`)));
   }
+  // Rain forecast over the river catchments: the earliest sign of high water.
+  const r = state.rain;
+  if (r?.next3_mm != null) {
+    const days = r.forecast.slice(0, 3).map((d) => `${shortWeekday(d.date)} ${Math.round(d.mm)}`).join(" · ");
+    status.append(el("span", r.next3_mm >= 70 ? "thresholds rain-heavy" : "thresholds",
+      `Rain forecast, Ljubljanica and Sava catchments: ${Math.round(r.next3_mm)} mm in the next 3 days (${days} mm).` +
+      (r.next3_mm >= 70 ? " Heavy: rain like this came before every high-groundwater event at Zalog since 2015." : "")));
+  }
   status.hidden = !status.childNodes.length;
 }
+const shortWeekday = (iso) => new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" }).format(Date.parse(iso + "T12:00Z"));
 
 function wrapStat(label, dd) {
   const d = el("div");
@@ -1215,6 +1224,7 @@ async function init() {
   state.byId = Object.fromEntries(catalogue.stations.map((s) => [s.id, s]));
   state.gw = catalogue.groundwater ?? null;
   state.zalog = catalogue.groundwater_zalog ?? null;
+  state.rain = catalogue.rain ?? null;
   state.station = state.byId[catalogue.default]?.tracked ? catalogue.default : catalogue.stations.find((s) => s.tracked)?.id;
   readHash();
   const gen = Date.parse(catalogue.generated);

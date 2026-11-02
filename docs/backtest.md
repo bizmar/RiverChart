@@ -30,3 +30,13 @@ A rule *catches* an event when it is on at some point from 10 days before the ev
 | 0.9 m below | 1.1 m below | 7 | 0.6 | 3 of 3 | 1, 0, 7 | 4 |
 | 1.1 m below | 1.3 m below | 11 | 1.0 | 3 of 3 | 1, 1, 8 | 8 |
 
+## Heavy rain forecast (mm over today and the next 2 days, Ljubljanica and Sava catchments)
+
+| On at | Clears at | Alerts | Per year | Caught | Lead (days) | False |
+|---|---|---|---|---|---|---|
+| 50 mm | 25 mm | 75 | 6.8 | 3 of 3 | 6, 3, 10 | 72 |
+| 60 mm | 30 mm | 38 | 3.4 | 3 of 3 | 5, 2, 10 | 34 |
+| 70 mm **(now)** | 35 mm | 25 | 2.3 | 3 of 3 | 3, 2, 10 | 21 |
+| 80 mm | 40 mm | 15 | 1.4 | 2 of 3 | 3, 2 | 13 |
+| 90 mm | 45 mm | 11 | 1.0 | 0 of 3 | – | 11 |
+
