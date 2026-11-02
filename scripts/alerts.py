@@ -10,6 +10,7 @@ dropped back well below, and the warning rules send an all-clear when they turn 
 kept in <store>/alerts.json, so a run that changes nothing sends nothing.
 
 While a warning is on, a Live Activity on the Lock Screen follows the Ljubljanica and groundwater.
+The thresholds are checked against 2015-2026 with scripts/backtest.py (report: docs/backtest.md).
 A Lock Screen widget and a Home Screen widget show the latest values all the time.
 
 Credentials come from the environment and are never written anywhere:
@@ -39,15 +40,17 @@ SITE = "https://bizmar.github.io/RiverChart/"
 GATEWAY = "https://push.getnotifyapp.com"
 RIVER, SAVA = "5078", "3570"  # Ljubljanica at Moste I, Sava at Sentjakob
 
-# Ljubljanica at Moste I. It was about 200-255 cm on both 2023 days with groundwater at the reference level at
-# Zalog, and of all live gauges it follows the Zalog groundwater best (correlation 0.90, 2015-2026).
+# Thresholds are tuned with scripts/backtest.py on 2015-2026 (report: docs/backtest.md).
+# Ljubljanica at Moste I: a heads-up. It was 200-257 cm (daily mean) on every Zalog high-groundwater event,
+# but it is above 200 cm about 4 times a year, mostly without one, so on its own it is not a warning.
 WARN_CM, WARN_CLEAR_CM = 200, 180
 RISE_CM, RISE_CLEAR_CM, RISE_HOURS = 40, 15, 6
 # Groundwater at Hrastje, metres over three days.
 GW_RISE_M, GW_RISE_CLEAR_M, GW_RISE_DAYS = 0.30, 0.10, 3
 # Groundwater at Zalog, estimated from the rivers (scripts/estimate.py): metres below the reference level.
-# The estimate runs about 0.5 m low at the sharpest peaks, so the heads-up comes well before the reference.
-ZALOG_NEAR_M, ZALOG_NEAR_CLEAR_M = 0.50, 0.70
+# The warning: in the backtest it caught all 3 events (2017, Aug and Nov 2023), 0-7 days ahead, with 2 false
+# alarms in 11 years. The estimate runs about 0.5 m low at the sharpest peaks, so it starts well below the reference.
+ZALOG_NEAR_M, ZALOG_NEAR_CLEAR_M = 0.70, 0.90
 # An estimate older than this many days is not used.
 ZALOG_MAX_AGE_DAYS = 2
 # ARSO's readings older than this: the dashboard can no longer see the river.
@@ -153,9 +156,9 @@ def evaluate(snap: dict, active: dict) -> dict:
 def level(on: dict) -> str:
     if on.get("flood"):
         return "urgent"
-    if on.get("high"):
+    if on.get("zalog_near"):
         return "warning"
-    if on.get("rise") or on.get("gw_rise") or on.get("zalog_near"):
+    if on.get("high") or on.get("rise") or on.get("gw_rise"):
         return "heads-up"
     return "normal"
 
@@ -174,10 +177,10 @@ def messages(snap: dict, before: dict, on: dict) -> list[dict]:
     if turned_off("flood"):
         add("flood", "Flood stage over", "ARSO no longer reports a flood stage on the Ljubljanica or the Sava.")
     if turned_on("high") and not turned_on("flood"):  # a flood stage already says it
-        add("high", "Ljubljanica high", f"Moste I: {cm} cm ({rise} cm in {RISE_HOURS} h), above {WARN_CM} cm. "
-            "Groundwater at Zalog was at the reference level when the river was this high.", "warning", urgent=True)
+        zalog = f" Zalog groundwater estimate: about {fmt(snap['zalog_m'], 2)} m." if snap.get("zalog_m") is not None else ""
+        add("high", "Ljubljanica high", f"Moste I: {cm} cm ({rise} cm in {RISE_HOURS} h), above {WARN_CM} cm.{zalog}", "heads-up")
     if turned_off("high"):
-        add("high", "All clear", f"Ljubljanica back to {cm} cm at Moste I.")
+        add("high", "Ljubljanica back down", f"Ljubljanica back to {cm} cm at Moste I.")
     if turned_on("rise") and not on.get("high"):
         add("rise", "Ljubljanica rising fast", f"Moste I: {rise} cm in {RISE_HOURS} h, now {cm} cm.", "heads-up")
     if turned_on("gw_rise"):
@@ -188,9 +191,9 @@ def messages(snap: dict, before: dict, on: dict) -> list[dict]:
         where = f"{fmt(below, 2)} m below" if below > 0 else f"{fmt(-below, 2)} m above"
         add("zalog_near", "Zalog groundwater near the reference",
             f"Estimated from the rivers: about {fmt(snap['zalog_m'], 2)} m (±{fmt(snap['zalog_err'], 2)}), "
-            f"{where} the reference level ({snap['zalog_ref_date']}).", "heads-up")
+            f"{where} the reference level ({snap['zalog_ref_date']}). Ljubljanica at Moste I: {cm} cm.", "warning", urgent=True)
     if turned_off("zalog_near"):
-        add("zalog_near", "Zalog groundwater falling",
+        add("zalog_near", "All clear",
             f"Estimated at about {fmt(snap['zalog_m'], 2)} m, more than {fmt(ZALOG_NEAR_CLEAR_M, 1)} m below the reference.")
     if turned_on("stale"):
         add("stale", "No new river data",
@@ -206,7 +209,7 @@ def tile(snap: dict, lvl: str) -> dict:
     trend = "steady" if rise is None or abs(rise) < 3 else ("rising" if rise > 0 else "falling")
     content = {
         "title": f"Ljubljanica {fmt(snap['lj_cm'])} cm",
-        "body": {"urgent": "Flood stage", "warning": "High", "heads-up": "Rising", "normal": "Normal"}[lvl]
+        "body": {"urgent": "Flood stage", "warning": "Groundwater high", "heads-up": "Heads-up", "normal": "Normal"}[lvl]
                 + f" · {fmt(rise, signed=True)} cm in {RISE_HOURS} h",
         "symbol": "water.waves",
         "tint": COLOURS[lvl],
@@ -214,7 +217,9 @@ def tile(snap: dict, lvl: str) -> dict:
         "metrics": [
             {"label": "Ljubljanica", "value": fmt(snap["lj_cm"]), "unit": "cm"},
             {"label": "Sava", "value": fmt(snap["sava_cm"]), "unit": "cm"},
-            {"label": "Groundwater", "value": fmt(snap["gw_m"], 2), "unit": "m"},
+            # Zalog's estimate when there is one (what the warning is about), else the live Hrastje well.
+            {"label": "Zalog ≈", "value": fmt(snap["zalog_m"], 2), "unit": "m"} if snap.get("zalog_m") is not None
+            else {"label": "Groundwater", "value": fmt(snap["gw_m"], 2), "unit": "m"},
         ],
         "button": {"title": "Open RiverChart", "url": SITE, "open": True},
     }
