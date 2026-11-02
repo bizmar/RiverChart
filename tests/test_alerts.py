@@ -98,28 +98,19 @@ class AlertTests(unittest.TestCase):
         self.run_at(level=121)  # next run updates the same widgets instead of creating new ones
         self.assertEqual([p for p, _, _ in self.gw.paths("/")], ["/widgets/WG000001", "/screenwidgets/SW000001"])
 
-    def test_warning_once_then_all_clear_with_hysteresis(self):
+    def test_high_river_is_a_heads_up_with_hysteresis(self):
         self.run_at(level=150)
-        state = self.run_at(level=210, rise=20)
+        state = self.run_at(level=210, rise=20, zalog=264.1)
         self.assertEqual(self.gw.sent(), ["Ljubljanica high"])
         msg = next(b for p, _, b in self.gw.calls if p.startswith("/notify-json/"))
-        self.assertTrue(msg["timeSensitive"])
-        self.assertEqual(msg["iconUrl"], "https://bizmar.github.io/RiverChart/icons/alert-warning.png")
-        self.assertEqual(state["ids"]["activity"], "LA000001")
-        live = self.gw.paths("/live-activity")
-        self.assertEqual(live[0][0], "/live-activity/ABC12345")
-        self.assertEqual(live[0][2]["title"], "Ljubljanica 210 cm")
-
-        self.run_at(level=215)  # still high: no new message, the tile is updated in place
-        self.assertEqual(self.gw.sent(), [])
-        self.assertEqual(self.gw.paths("/live-activity")[0][0], "/live-activity/LA000001")
+        self.assertFalse(msg["timeSensitive"])
+        self.assertIn("Zalog groundwater estimate: about 264.10 m", msg["text"])
+        self.assertEqual(state["level"], "heads-up")
+        self.assertEqual(self.gw.paths("/live-activity"), [])
         self.run_at(level=190)  # below 200 but above 180: still on
         self.assertEqual(self.gw.sent(), [])
-        state = self.run_at(level=175)
-        self.assertEqual(self.gw.sent(), ["All clear"])
-        end = self.gw.paths("/live-activity")[0]
-        self.assertTrue(end[2]["end"])
-        self.assertNotIn("activity", state["ids"])
+        self.run_at(level=175)
+        self.assertEqual(self.gw.sent(), ["Ljubljanica back down"])
 
     def test_flood_stage_is_urgent(self):
         state = self.run_at(level=260, flow_class="prvi visokovodni pretok")
@@ -133,17 +124,29 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(state["level"], "heads-up")
         self.assertEqual(self.gw.paths("/live-activity"), [])  # no tile for a heads-up
 
-    def test_zalog_estimate_near_the_reference(self):
+    def test_zalog_estimate_near_the_reference_is_a_warning(self):
         self.run_at(level=120, zalog=263.3)
-        state = self.run_at(level=120, zalog=265.95)  # 0.43 m below the reference
-        self.assertEqual(self.gw.sent(), ["Zalog groundwater near the reference"])
-        msg = next(b for p, _, b in self.gw.calls if p.startswith("/notify-json/"))
-        self.assertIn("about 265.95 m (±0.22), 0.43 m below the reference level (2023-11-06)", msg["text"])
-        self.assertEqual(state["level"], "heads-up")
-        self.run_at(level=120, zalog=265.75)  # 0.63 m below: still on (hysteresis)
+        state = self.run_at(level=210, zalog=265.8)  # 0.58 m below the reference
+        self.assertEqual(self.gw.sent(), ["Ljubljanica high", "Zalog groundwater near the reference"])
+        msg = [b for p, _, b in self.gw.calls if p.startswith("/notify-json/")][1]
+        self.assertTrue(msg["timeSensitive"])
+        self.assertEqual(msg["iconUrl"], "https://bizmar.github.io/RiverChart/icons/alert-warning.png")
+        self.assertIn("about 265.80 m (±0.22), 0.58 m below the reference level (2023-11-06)", msg["text"])
+        self.assertEqual(state["level"], "warning")
+        self.assertEqual(state["ids"]["activity"], "LA000001")
+        live = self.gw.paths("/live-activity")
+        self.assertEqual(live[0][0], "/live-activity/ABC12345")
+        self.assertEqual(live[0][2]["metrics"][2], {"label": "Zalog ≈", "value": "265.80", "unit": "m"})
+
+        self.run_at(level=210, zalog=265.9)  # still on: no new message, the tile is updated in place
         self.assertEqual(self.gw.sent(), [])
-        self.run_at(level=120, zalog=265.6)
-        self.assertEqual(self.gw.sent(), ["Zalog groundwater falling"])
+        self.assertEqual(self.gw.paths("/live-activity")[0][0], "/live-activity/LA000001")
+        self.run_at(level=170, zalog=265.55)  # 0.83 m below: still on (hysteresis); the river heads-up clears
+        self.assertEqual(self.gw.sent(), ["Ljubljanica back down"])
+        state = self.run_at(level=150, zalog=265.4)
+        self.assertEqual(self.gw.sent(), ["All clear"])
+        self.assertTrue(self.gw.paths("/live-activity")[0][2]["end"])
+        self.assertNotIn("activity", state["ids"])
 
     def test_old_zalog_estimate_is_ignored(self):
         self.run_at(level=120)

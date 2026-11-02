@@ -23,11 +23,18 @@ Alerts, a Live Activity and widgets on an iPhone, through the free [Notify!](htt
 
 | Level | When | How |
 |---|---|---|
-| Heads-up | Ljubljanica at Moste I rises 40 cm or more in 6 h, groundwater at Hrastje rises 0.30 m or more in 3 days, or the Zalog estimate comes within 0.50 m of the reference level | notification |
-| Warning | Ljubljanica at Moste I at 200 cm or more (both 2023 reference days were above it) | Time Sensitive notification, and a Live Activity until it is over |
+| Heads-up | Ljubljanica at Moste I at 200 cm or more, or rising 40 cm or more in 6 h; groundwater at Hrastje rising 0.30 m or more in 3 days | notification |
+| Warning | The Zalog groundwater estimate comes within 0.70 m of the reference level | Time Sensitive notification, and a Live Activity until it is over |
 | Urgent | ARSO reports a flood stage on the Ljubljanica (Moste I) or the Sava (Šentjakob) | Time Sensitive notification and Live Activity |
 
-Each alert is sent once. A warning clears only when the river is back under 180 cm, so a level hovering around 200 cm does not keep pinging, and then an "All clear" follows. A notice also comes when ARSO sends no readings for 6 hours, and again when they are back. A Lock Screen widget and a Home Screen widget show the latest values all the time. The thresholds are at the top of `scripts/alerts.py`.
+Each alert is sent once. A rule clears only once the value is well back down (the river under 180 cm, the Zalog estimate more than 0.90 m below the reference), so a level hovering at the threshold does not keep pinging. The warning then sends an "All clear".
+
+**Why these levels.** `scripts/backtest.py` replays the rules on the daily record for 2015–2026 ([report](docs/backtest.md)). In that time Zalog groundwater came near the reference level three times: December 2017, August 2023 and November 2023.
+- **The Zalog estimate rule** would have warned for all three: 1 day, the same day and 7 days ahead. It had 2 false alarms in 11 years.
+- **The Ljubljanica above 200 cm** was also true every time, but it happens about 4 times a year, mostly with no high groundwater. So it is a heads-up, not a warning.
+- **Warning time:** neither rule gives much. High groundwater at Zalog follows the rivers within about a day.
+
+Re-run the backtest after changing a threshold: `cd scripts && python backtest.py --store ../store > ../docs/backtest.md`. A notice also comes when ARSO sends no readings for 6 hours, and again when they are back. A Lock Screen widget and a Home Screen widget show the latest values all the time. The thresholds are at the top of `scripts/alerts.py`.
 
 Setup: in Notify!, copy the device's webhook address (it ends in `?token=...`) and add it under **Settings → Secrets and variables → Actions → New repository secret** as `NOTIFY_URL`. Optionally create a beacon in Notify! (expected every 60 minutes, grace 180) and add its ping address as `NOTIFY_BEACON_URL`. The app then alerts by itself if these updates stop. Check it with **Actions → Update data and publish → Run workflow → Send a test notification**.
 
