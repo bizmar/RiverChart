@@ -1,0 +1,34 @@
+name: Checks
+
+# Runs on every pull request (and on demand). Mark "Checks / python" and "Checks / site" as required in
+# Settings -> Branches (or Rules) so a pull request can only be merged when they pass.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Lint (ruff)
+        run: |
+          pip install --quiet ruff==0.16.8
+          ruff check scripts tests --output-format github
+      - name: Tests
+        run: python -m unittest discover tests -v
+
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: JavaScript syntax
+        run: for f in site/*.js; do node --check "$f" && echo "ok $f"; done
+      - name: JSON files parse
+        run: for f in site/*.webmanifest; do [ -e "$f" ] || continue; node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" && echo "ok $f"; done

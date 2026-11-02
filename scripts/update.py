@@ -489,7 +489,6 @@ def main() -> int:
         "groundwater": groundwater,
         "groundwater_zalog": zalog,
         "rain": rainfall,
-        "events": past_events(args.store, zalog),
         "stations": [
             {
                 "id": s["id"],
