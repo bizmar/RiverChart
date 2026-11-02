@@ -25,6 +25,19 @@ class EstimateTests(unittest.TestCase):
         ys = [3 + 0.5 * a - 2 * b for _, a, b in xs]
         self.assertEqual([round(c, 6) for c in estimate.fit(xs, ys)], [3, 0.5, -2])
 
+    def test_interpolated_bridges_gaps_only_between_known_days(self):
+        d = days(6)
+        self.assertEqual(estimate.interpolated({d[1]: 10.0, d[4]: 40.0}, d), {d[1]: 10.0, d[2]: 20.0, d[3]: 30.0, d[4]: 40.0})
+
+    def test_estimate_skips_days_without_river_readings(self):
+        span = days(8 * 365)
+        lj = {d: 50 + 40 * math.sin(i / 58) for i, d in enumerate(span)}
+        sava = {d: 200 + 150 * math.cos(i / 41) for i, d in enumerate(span) if not span[-40] <= d < span[-20]}
+        well = {d: 263 + 0.01 * lj[d] for d in span[200:-60]}
+        r = estimate.estimate(well, lj, sava, today=span[-1])
+        shown = [d for d, _ in r["days"]]
+        self.assertEqual(shown, span[-60:-40] + span[-20:])
+
     def test_smoothed_carries_over_gaps(self):
         d = days(4)
         out = estimate.smoothed({d[0]: 0.0, d[1]: 10.0}, d, 2)

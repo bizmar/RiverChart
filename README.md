@@ -7,7 +7,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 - the current water level, flow and water temperature, with the change over the last 24 hours and ARSO's own status (normal / high / flood stage)
 - an **interactive chart**: zoom with the scroll wheel or a pinch, drag to pan, or jump to 2 days … 10 years … the whole record
 - **groundwater** (the **Ground** button): around Zalog, cellars flood from rising groundwater rather than from the river itself. Two charts:
-  - **Zalog**: VOKA SNAGA's well P-1gl in Zalog, daily from 2015 to June 2026, with a reference line at its level on 6 November 2023
+  - **Zalog**: VOKA SNAGA's well P-1gl in Zalog, daily from 2015 to June 2026, with a reference line at its level on 6 November 2023. After that, a dashed **estimate** from the rivers
   - **Hrastje**: ARSO's nearest automatic well (~4 km west), live, with its record high and low
 - **All** view: water level, flow, temperature and groundwater stacked on one shared time axis, so zooming, panning and the hover readout move together
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
@@ -23,7 +23,7 @@ Alerts, a Live Activity and widgets on an iPhone, through the free [Notify!](htt
 
 | Level | When | How |
 |---|---|---|
-| Heads-up | Ljubljanica at Moste I rises 40 cm or more in 6 h, or groundwater at Hrastje rises 0.30 m or more in 3 days | notification |
+| Heads-up | Ljubljanica at Moste I rises 40 cm or more in 6 h, groundwater at Hrastje rises 0.30 m or more in 3 days, or the Zalog estimate comes within 0.50 m of the reference level | notification |
 | Warning | Ljubljanica at Moste I at 200 cm or more (both 2023 reference days were above it) | Time Sensitive notification, and a Live Activity until it is over |
 | Urgent | ARSO reports a flood stage on the Ljubljanica (Moste I) or the Sava (Šentjakob) | Time Sensitive notification and Live Activity |
 
@@ -47,6 +47,8 @@ Every station within 10 km of Zalog (plus Moste I) is recorded automatically.
 ARSO also runs about 140 automatic groundwater wells ([map and tables](https://www.arso.gov.si/vode/podatki/podzem_amp/)). The nearest to Zalog is **Hrastje (0341)** (`G85040`), about 4 km west on the same aquifer (Ljubljansko polje). It reports hourly, but ARSO usually sends the readings about once a day.
 
 **Zalog (P-1gl)** is a piezometer of JP VOKA SNAGA, the Ljubljana water company, in Zalog. Its daily levels for 2015 to June 2026 come from the open dataset [Groundwater-Level Monitoring Data from the Ljubljansko Barje and Ljubljansko Polje Piezometer Networks](https://zenodo.org/records/21789430) (Bračič Železnik, Čenčur Curk, Torkar; CC BY 4.0), imported once by `scripts/voka.py`. It is not updated live. The reference line is this well's own level on a chosen day, 6 November 2023 (266.38 m; `REFERENCE_DATE` in `scripts/update.py`). The highest level since 2015 was 266.96 m on 6 August 2023.
+
+**The Zalog estimate.** Since the well's data ends in June 2026, `scripts/estimate.py` estimates it from the rivers. The Zalog well follows a weighted mix of the Ljubljanica's flow at Moste I and the Sava's flow at Šentjakob, each averaged over a few days to a few months. That mix is fitted to the well's 2015–2026 record (least squares) on every run. On three years held back from the fit, the estimate is typically within about ±0.2 m. It tends to run low at the sharpest peaks (about 0.5 m low on 6 August 2023). It is shown only on days with real readings of both rivers. The chart draws it dashed, with a band of its typical error. If newer well data is ever imported, the fit uses it automatically.
 
 Hrastje's water table is about 10 m higher than Zalog's, because the ground rises towards the city, so its levels cannot be compared with Zalog's. It is shown for its live trend: when it rises, Zalog rises too.
 
@@ -87,6 +89,7 @@ stations.json               all ARSO stations + latest reading, nearest first
 <id>/live/YYYY-MM.csv       time (UTC),level,flow,temp  - measured readings, 10-60 min apart
 G85040/...                  the groundwater well, same layout (level = ARSO's "Nivo", hourly)
 VOKA-P-1gl/daily.csv        the Zalog well, daily, level in m above sea level (src v = VOKA SNAGA)
+VOKA-P-1gl/estimate.csv     the Zalog well estimated from the rivers, for days after its data ends
 ```
 
 Units: level in cm (on the gauge's own scale, not above sea level), flow in m³/s, temperature in °C. Groundwater level in cm relative to the well top, as ARSO publishes it; `stations.json` also gives the latest value in metres above sea level.

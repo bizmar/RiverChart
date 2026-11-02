@@ -45,6 +45,11 @@ WARN_CM, WARN_CLEAR_CM = 200, 180
 RISE_CM, RISE_CLEAR_CM, RISE_HOURS = 40, 15, 6
 # Groundwater at Hrastje, metres over three days.
 GW_RISE_M, GW_RISE_CLEAR_M, GW_RISE_DAYS = 0.30, 0.10, 3
+# Groundwater at Zalog, estimated from the rivers (scripts/estimate.py): metres below the reference level.
+# The estimate runs about 0.5 m low at the sharpest peaks, so the heads-up comes well before the reference.
+ZALOG_NEAR_M, ZALOG_NEAR_CLEAR_M = 0.50, 0.70
+# An estimate older than this many days is not used.
+ZALOG_MAX_AGE_DAYS = 2
 # ARSO's readings older than this: the dashboard can no longer see the river.
 STALE_HOURS = 6
 
@@ -97,6 +102,9 @@ def snapshot(store: Path, now: datetime) -> dict:
             floods.append(f"{st['river']} at {st['place']}: {st.get('flow_class') or 'flood stage'}"
                           + (f" ({st['flow']:.0f} m³/s)" if st.get("flow") else ""))
     stage1 = (lj.get("thresholds") or {}).get("flow", {}).get("1")
+    zalog = cat.get("groundwater_zalog") or {}
+    est, ref = zalog.get("estimate") or {}, zalog.get("reference") or {}
+    fresh = est.get("last") and (now.date() - datetime.fromisoformat(est["last"]["date"]).date()).days <= ZALOG_MAX_AGE_DAYS
     return {
         "lj_cm": lj.get("level"),
         "lj_flow": lj.get("flow"),
@@ -107,6 +115,10 @@ def snapshot(store: Path, now: datetime) -> dict:
         "gw_m": gw.get("level"),
         "gw_change": change_over(gw_m, GW_RISE_DAYS * 24),
         "floods": floods,
+        "zalog_m": est["last"]["value"] if fresh else None,
+        "zalog_err": est.get("rmse"),
+        "zalog_ref": ref.get("value"),
+        "zalog_ref_date": ref.get("date"),
         "now": now,
     }
 
@@ -130,6 +142,9 @@ def evaluate(snap: dict, active: dict) -> dict:
         on["rise"] = rise >= RISE_CM or (active.get("rise", False) and rise >= RISE_CLEAR_CM)
     if gw_rise is not None:
         on["gw_rise"] = gw_rise >= GW_RISE_M or (active.get("gw_rise", False) and gw_rise >= GW_RISE_CLEAR_M)
+    if snap.get("zalog_m") is not None and snap.get("zalog_ref") is not None:
+        below = snap["zalog_ref"] - snap["zalog_m"]
+        on["zalog_near"] = below <= ZALOG_NEAR_M or (active.get("zalog_near", False) and below <= ZALOG_NEAR_CLEAR_M)
     on["flood"] = bool(snap["floods"])
     on["stale"] = snap["lj_time"] is None or snap["now"] - snap["lj_time"] > timedelta(hours=STALE_HOURS)
     return on
@@ -140,7 +155,7 @@ def level(on: dict) -> str:
         return "urgent"
     if on.get("high"):
         return "warning"
-    if on.get("rise") or on.get("gw_rise"):
+    if on.get("rise") or on.get("gw_rise") or on.get("zalog_near"):
         return "heads-up"
     return "normal"
 
@@ -168,6 +183,15 @@ def messages(snap: dict, before: dict, on: dict) -> list[dict]:
     if turned_on("gw_rise"):
         add("gw_rise", "Groundwater rising",
             f"Hrastje: {fmt(snap['gw_change'], 2, True)} m in {GW_RISE_DAYS} days, now {fmt(snap['gw_m'], 2)} m.", "heads-up")
+    if turned_on("zalog_near"):
+        below = snap["zalog_ref"] - snap["zalog_m"]
+        where = f"{fmt(below, 2)} m below" if below > 0 else f"{fmt(-below, 2)} m above"
+        add("zalog_near", "Zalog groundwater near the reference",
+            f"Estimated from the rivers: about {fmt(snap['zalog_m'], 2)} m (±{fmt(snap['zalog_err'], 2)}), "
+            f"{where} the reference level ({snap['zalog_ref_date']}).", "heads-up")
+    if turned_off("zalog_near"):
+        add("zalog_near", "Zalog groundwater falling",
+            f"Estimated at about {fmt(snap['zalog_m'], 2)} m, more than {fmt(ZALOG_NEAR_CLEAR_M, 1)} m below the reference.")
     if turned_on("stale"):
         add("stale", "No new river data",
             f"ARSO has sent no Ljubljanica readings for over {STALE_HOURS} h, so RiverChart cannot see the river.")
