@@ -17,6 +17,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 - **past high water**: every event since 2006 with the Ljubljanica averaging 240 cm or more at Moste I, or Zalog groundwater within 0.4 m of the reference level, with each event's peaks. Tap one to open that month in the **All** view
 - a data table and a CSV download for whatever range you are looking at
 - every nearby ARSO gauge, sorted by distance from Zalog
+- **installable app**: on iPhone, Safari → Share → **Add to Home Screen**; on Android or desktop Chrome, **Install app**. It opens full screen, and without a network it shows the last data it saw (`site/sw.js`, `site/manifest.webmanifest`)
 - light and dark mode that follows your device, with a manual override, and a dense chart-first layout on phones
 
 ## Phone alerts

@@ -1310,7 +1310,7 @@ async function init() {
   readHash();
   const gen = Date.parse(catalogue.generated);
   $("updated").textContent = `Data refreshed ${ago(gen)}`;
-  $("updated").append(el("span", "extra", " · every 30 min"));
+  $("updated").append(el("span", "extra", navigator.onLine === false ? " · offline, showing the last saved data" : " · every 30 min"));
   $("updated").title = dateFmt.format(gen) + " " + timeFmt.format(gen);
   renderNearby();
   renderEvents(catalogue.events ?? []);
@@ -1393,5 +1393,10 @@ function setupPrefs() {
 }
 
 setupPrefs();
+// Installable app and offline copy of the last data (see sw.js).
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
 if (window.echarts) init();
 else window.addEventListener("load", () => (window.echarts ? init() : showError("The chart library failed to load.")));
