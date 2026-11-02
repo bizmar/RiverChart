@@ -91,6 +91,26 @@ MAINTENANCE = """<html><head><title>Arhiv hidroloških podatkov je začasno nedo
 <body><h1>Spletna stran Arhiv hidroloških podatkov</h1><p>Spletna stran z arhivom hidroloških podatkov je začasno nedostopna.</p></body></html>"""
 
 
+class PastEventsTests(unittest.TestCase):
+    def test_events_join_nearby_days_and_take_peaks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def put(sid, field, rows):
+                (root / sid).mkdir(parents=True)
+                (root / sid / "daily.csv").write_text(f"date,{field}\n" + "".join(f"{d},{v}\n" for d, v in rows))
+            put("5078", "level", [("2020-01-01", 100), ("2020-01-02", 245), ("2020-01-05", 250), ("2020-03-01", 260)])
+            put("3570", "flow", [("2020-01-03", 800.5), ("2020-03-01", 400)])
+            put("VOKA-P-1gl", "level", [("2020-01-04", 266.1), ("2020-06-01", 266.0), ("2020-06-02", 264.0)])
+            ev = update.past_events(root, {"reference": {"date": "2023-11-06", "value": 266.38}})
+            self.assertEqual([(e["start"], e["end"], e["peak"]) for e in ev],
+                             [("2020-06-01", "2020-06-01", "2020-06-01"), ("2020-03-01", "2020-03-01", "2020-03-01"),
+                              ("2020-01-02", "2020-01-05", "2020-01-04")])
+            self.assertEqual(ev[2]["ljubljanica"], {"value": 250.0, "date": "2020-01-05"})
+            self.assertEqual(ev[2]["sava_flow"], {"value": 800.5, "date": "2020-01-03"})
+            self.assertIsNone(ev[1]["zalog"])
+            self.assertIsNone(ev[0]["ljubljanica"])
+
+
 class ArchiveDownTests(unittest.TestCase):
     def test_maintenance_page_is_not_empty_data(self):
         with mock.patch.object(arso, "fetch", lambda *a, **k: MAINTENANCE.encode()):

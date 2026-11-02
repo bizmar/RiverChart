@@ -506,3 +506,10 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 
   footer { padding: 16px 10px 24px; font-size: 0.75rem; }
 }
+.events-more { margin-top: 10px; }
+.event-card[hidden] { display: none; }
+@media (max-width: 640px) {
+  .event-card { grid-template-columns: auto 1fr; column-gap: 10px; }
+  .event-card .meta { grid-column: 2; grid-row: 1; align-self: baseline; }
+  .event-card .vals { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; margin-top: 2px; }
+}
