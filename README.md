@@ -17,6 +17,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 - **past high water**: every event since 2006 with the Ljubljanica averaging 240 cm or more at Moste I, or Zalog groundwater within 0.4 m of the reference level, with each event's peaks. Tap one to open that month in the **All** view
 - a data table and a CSV download for whatever range you are looking at
 - every nearby ARSO gauge, sorted by distance from Zalog
+- **data status**: when each source last delivered (site update, the river station, Hrastje, the Zalog estimate, the rain forecast), with a ⚠ when one is later than usual, and the gaps of more than a week in the shown station's record since 2015
 - **installable app**: on iPhone, Safari → Share → **Add to Home Screen**; on Android or desktop Chrome, **Install app**. It opens full screen, and without a network it shows the last data it saw (`site/sw.js`, `site/manifest.webmanifest`)
 - light and dark mode that follows your device, with a manual override, and a dense chart-first layout on phones
 
@@ -147,7 +148,7 @@ Every pull request runs two free checks:
 - **Checks** (`.github/workflows/checks.yml`): ruff lint (settings in `ruff.toml`) and the unit tests for the Python scripts, plus a syntax check of the site's JavaScript. To lint locally: `pip install ruff && ruff check scripts tests`.
 - **CodeQL** (`.github/workflows/codeql.yml`): GitHub's code scanning for security bugs in Python and JavaScript. It also runs weekly. Findings show on the pull request and under **Security → Code scanning**.
 
-To block merging until they pass, go to **Settings → Branches → Add branch ruleset** (target `main`). Turn on **Require status checks to pass**, and add `python`, `site` and `Analyze (python)` / `Analyze (javascript-typescript)`.
+To block merging until they pass, go to **Settings → Branches → Add branch ruleset** (target `main`). Turn on **Require status checks to pass**, and add `python`, `site`, `analyze (python)` and `analyze (javascript-typescript)`.
 
 ## Privacy
 

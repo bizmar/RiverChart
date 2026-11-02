@@ -1245,6 +1245,7 @@ async function update(keepWindow = false) {
     renderControls();
     renderChart(keepWindow && chart.getOption()?.series?.length > 0);
     renderAbove();
+    renderDataStatus();
     if (state.picked && !keepWindow) jumpToDate(state.picked);
   } catch (err) {
     showError(`Could not load data for this station (${err.message}).`);
@@ -1304,6 +1305,7 @@ async function init() {
   state.byId = Object.fromEntries(catalogue.stations.map((s) => [s.id, s]));
   state.gw = catalogue.groundwater ?? null;
   state.zalog = catalogue.groundwater_zalog ?? null;
+  state.catalogue = catalogue;
   DEFAULT_STATION_ID = state.byId[catalogue.default]?.tracked ? catalogue.default : null;
   state.rain = catalogue.rain ?? null;
   state.station = state.byId[catalogue.default]?.tracked ? catalogue.default : catalogue.stations.find((s) => s.tracked)?.id;
@@ -1315,6 +1317,69 @@ async function init() {
   renderNearby();
   renderEvents(catalogue.events ?? []);
   if (state.station) await update();
+}
+
+// Data status: when each source last delivered, flagged when it is later than usual, and the gaps (over a week)
+// in the shown station's daily record since 2015.
+const HOUR = 3600000;
+function renderDataStatus() {
+  const box = $("data-status");
+  if (!box || !state.catalogue) return;
+  box.replaceChildren();
+  const row = (label, text, late) => {
+    const d = el("div", late ? "late" : null);
+    const dd = el("dd");
+    // A list of items (the gaps) is shown one per line.
+    for (const line of [].concat(text)) dd.append(el("div", null, (late ? "⚠ " : "") + line));
+    d.append(el("dt", null, label), dd);
+    box.append(d);
+  };
+  const when = (t) => `${shortDateFmt.format(t)}, ${timeFmt.format(t)} (${ago(t)})`;
+  const day = (iso) => shortDayFmt.format(dayBounds(iso)[0]);
+  const cat = state.catalogue, now = Date.now();
+  const gen = Date.parse(cat.generated);
+  row("Site updated", when(gen) + (now - gen > 3 * HOUR ? " · later than the usual 30 minutes" : ""), now - gen > 3 * HOUR);
+  const st = state.byId[state.station];
+  if (st) {
+    const t = st.time ? Date.parse(st.time) : null;
+    const late = !t || now - t > 3 * HOUR;
+    row(`${st.river}, ${st.place}`, t ? when(t) + (late ? " · ARSO is late" : "") : "no current reading", late);
+  }
+  if (state.gw) {
+    const t = state.gw.time ? Date.parse(state.gw.time) : null;
+    const late = !t || now - t > 48 * HOUR;
+    row(`Groundwater, ${state.gw.name}`, t ? when(t) + (late ? " · usually arrives within a day" : "") : "no current reading", late);
+  }
+  const z = state.zalog;
+  if (z) {
+    const e = z.estimate;
+    const late = !!e && now - dayBounds(e.last.date)[0] > 2 * 24 * HOUR;
+    row(`Groundwater, ${z.name}`, `measured to ${day(z.last.date)}` +
+      (e ? `; estimated from the rivers to ${day(e.last.date)} (±${fmtVal(e.rmse, "zalog")} m)` : ""), late);
+  }
+  const r = cat.rain;
+  if (r) {
+    const today = isoDay(now);
+    row("Rain forecast", `Open-Meteo, ${day(r.updated)}`, r.updated < today);
+  } else {
+    row("Rain forecast", "not available", true);
+  }
+  // Gaps in the daily record of the shown station since 2015 (missing days, more than a week in a row).
+  const c = state.cache[state.station];
+  if (c?.daily?.length) {
+    const have = new Set(c.daily.filter((d) => d.level != null || d.flow != null).map((d) => d.date));
+    const gaps = [];
+    let start = null;
+    for (let t = Date.UTC(2015, 0, 1, 12); t <= now; t += 24 * HOUR) {
+      const iso = new Date(t).toISOString().slice(0, 10);
+      if (!have.has(iso)) start ??= iso;
+      else if (start) { gaps.push([start, new Date(t - 24 * HOUR).toISOString().slice(0, 10)]); start = null; }
+    }
+    if (start) gaps.push([start, isoDay(now)]);
+    const long = gaps.filter(([a, b]) => (Date.parse(b) - Date.parse(a)) / (24 * HOUR) + 1 > 7);
+    const fmt = ([a, b]) => `${day(a)} – ${day(b)} (${Math.round((Date.parse(b) - Date.parse(a)) / (24 * HOUR)) + 1} days)`;
+    row(`Gaps since 2015, ${st?.place ?? state.station}`, long.length ? long.map(fmt) : "none", false);
+  }
 }
 
 // Past high-water events: each card shows the peaks and opens that day on the chart (all measurements).
