@@ -257,6 +257,8 @@ function buildAllSeries() {
 const panelTitle = (id) => METRICS[id].label;
 
 function chartOption() {
+  normalData = {};
+  normalShown = false;
   const ids = panels();
   const n = ids.length;
   const ink2 = css("--ink-2"), muted = css("--muted"), grid = css("--grid"), axis = css("--axis"), surface = css("--surface");
@@ -347,10 +349,12 @@ function chartOption() {
         return `<div style="font-size:13px;color:${ink2}">${when}</div>` + shown.map((p) => {
           const est = p.seriesIndex >= n, id = est ? "zalog" : ids[p.seriesIndex];
           const key = est ? `border-top:2px dashed ${color(id)}` : `height:2px;background:${color(id)}`;
+          const nr = normalAt(id, p.value[0]);
           return `<div style="display:flex;align-items:center;gap:8px;margin-top:4px">` +
             `<span style="display:inline-block;width:14px;${key};border-radius:1px"></span>` +
             `<b style="font-size:16px">${est ? "≈ " : ""}${fmtVal(p.value[1], id)} ${METRICS[id].unit}</b>` +
-            `<span style="color:${ink2}">${METRICS[id].short}${est ? ` estimated (±${fmtVal(state.zalog.estimate.rmse, id)})` : ""}</span></div>`;
+            `<span style="color:${ink2}">${METRICS[id].short}${est ? ` estimated (±${fmtVal(state.zalog.estimate.rmse, id)})` : ""}</span></div>` +
+            (nr ? `<div style="margin:0 0 0 22px;font-size:12px;color:${ink2}">normal for the date: ${fmtVal(nr[0], id)}–${fmtVal(nr[1], id)}</div>` : "");
         }).join("");
       },
     },
@@ -395,8 +399,82 @@ function chartOption() {
           { offset: 1, color: hexAlpha(color(id), 0) },
         ]),
       },
-    })).concat(estimateSeries(ids, color)),
+    })).concat(estimateSeries(ids, color), ids.flatMap((id, i) => normalSeries(id, i, span))),
   };
+}
+
+// "Normal for this time of year": for each day of the year, the 10th to 90th percentile of the daily means of
+// every past year (within a week either side of that date). Drawn as a soft band behind each panel's line.
+const NORMAL_MIN_YEARS = 5;
+const normalCache = new Map();
+function normals(id) {
+  const src = sourceId(id), c = state.cache[src];
+  if (!c?.daily) return null;
+  const key = `${src}:${id}:${c.daily.length}`;
+  if (normalCache.has(key)) return normalCache.get(key);
+  const field = WELLS.includes(id) ? "level" : id;
+  const conv = id === "hrastje" ? gwMetres : (v) => v;
+  const byDoy = Array.from({ length: 366 }, () => []);
+  const years = new Set();
+  for (const d of c.daily) {
+    if (d[field] == null) continue;
+    byDoy[dayOfYear(d.date)].push(conv(d[field]));
+    years.add(d.date.slice(0, 4));
+  }
+  let out = null;
+  if (years.size >= NORMAL_MIN_YEARS) {
+    out = byDoy.map((_, doy) => {
+      const vals = [];
+      for (let k = -7; k <= 7; k++) vals.push(...byDoy[(doy + k + 366) % 366]);
+      if (vals.length < 20) return null;
+      vals.sort((a, b) => a - b);
+      const q = (f) => vals[Math.min(vals.length - 1, Math.floor(f * vals.length))];
+      return [q(0.1), q(0.9)];
+    });
+  }
+  normalCache.set(key, out);
+  return out;
+}
+function dayOfYear(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Math.min(365, Math.round((Date.UTC(y, m - 1, d) - Date.UTC(y, 0, 1)) / DAY));
+}
+function normalAt(id, t) {
+  const n = normals(id);
+  return n ? n[dayOfYear(new Date(t).toISOString().slice(0, 10))] : null;
+}
+function normalSeries(id, i, span) {
+  const n = normals(id);
+  if (!n || !span) return [];
+  // One point a day, or a week apart over long spans (the band changes slowly).
+  const step = span[1] - span[0] > 3 * 365 * DAY ? 7 * DAY : DAY;
+  const floor = [], band = [];
+  const start = Date.UTC(new Date(span[0]).getUTCFullYear(), new Date(span[0]).getUTCMonth(), new Date(span[0]).getUTCDate(), 11);
+  for (let t = start; t <= span[1] + DAY; t += step) {
+    const r = n[dayOfYear(new Date(t).toISOString().slice(0, 10))];
+    floor.push([t, r ? r[0] : null]);
+    band.push([t, r ? r[1] - r[0] : null]);
+  }
+  const base = { type: "line", xAxisIndex: i, yAxisIndex: i, showSymbol: false, silent: true, z: 1, stack: `normal-${i}`,
+    emphasis: { disabled: true }, tooltip: { show: false }, lineStyle: { opacity: 0 }, connectNulls: false };
+  normalData[`normal-floor-${i}`] = floor;
+  normalData[`normal-band-${i}`] = band;
+  // Data is filled in by showNormals() once the window is known.
+  return [
+    { ...base, id: `normal-floor-${i}`, data: [] },
+    { ...base, id: `normal-band-${i}`, data: [], areaStyle: { color: css("--normal"), opacity: 1 } },
+  ];
+}
+// The band is shown only for windows of NORMAL_MIN_DAYS or more: it widens the value scale, which would
+// flatten the line in a short view.
+const NORMAL_MIN_DAYS = 45;
+let normalData = {}, normalShown = false;
+function showNormals(s, e) {
+  const want = e - s >= NORMAL_MIN_DAYS * DAY;
+  if (want === normalShown) return;
+  normalShown = want;
+  const series = Object.entries(normalData).map(([id, data]) => ({ id, data: want ? data : [] }));
+  if (series.length) chart.setOption({ series });
 }
 
 // The Zalog estimate: a dashed line, with a band of ± its typical error (a stacked pair: invisible floor + band).
@@ -507,6 +585,7 @@ function renderChart(keepWindow) {
 let lazyBusy = false;
 async function onWindow(s, e) {
   state.window = [s, e];
+  showNormals(s, e);
   renderWindowStats();
   renderEmptyNotes();
   if ($("table").closest("details").open) renderTable();
