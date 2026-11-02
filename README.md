@@ -140,6 +140,14 @@ python3 -m unittest discover tests                # parser and store tests
 python3 scripts/update.py --store site/data       # real data from ARSO
 ```
 
+### Checks on pull requests
+
+Every pull request runs two free checks:
+- **Checks** (`.github/workflows/checks.yml`): ruff lint (settings in `ruff.toml`) and the unit tests for the Python scripts, plus a syntax check of the site's JavaScript. To lint locally: `pip install ruff && ruff check scripts tests`.
+- **CodeQL** (`.github/workflows/codeql.yml`): GitHub's code scanning for security bugs in Python and JavaScript. It also runs weekly. Findings show on the pull request and under **Security → Code scanning**.
+
+To block merging until they pass, go to **Settings → Branches → Add branch ruleset** (target `main`). Turn on **Require status checks to pass**, and add `python`, `site` and `Analyze (python)` / `Analyze (javascript-typescript)`.
+
 ## Privacy
 
 No cookies, no ads, no tracking. The page loads only from its own site: the chart library ([Apache ECharts](https://echarts.apache.org/), Apache-2.0) is served from `site/vendor/` rather than a CDN. The only thing stored is the colour theme choice (`rc-theme` in the browser's `localStorage`), which stays on the visitor's device. GitHub Pages, as the host, sees visitors' IP addresses like any web server does.

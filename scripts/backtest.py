@@ -136,8 +136,8 @@ def main() -> int:
 
     def table(title, series, rows, unit, current):
         p(f"## {title}\n")
-        p(f"| On at | Clears at | Alerts | Per year | Caught | Lead (days) | False |")
-        p(f"|---|---|---|---|---|---|---|")
+        p("| On at | Clears at | Alerts | Per year | Caught | Lead (days) | False |")
+        p("|---|---|---|---|---|---|---|")
         for on_at, clear_at, label in rows:
             r = score(series, on_at, clear_at, events, period)
             mark = " **(now)**" if current == (on_at, clear_at) else ""

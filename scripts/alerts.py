@@ -357,7 +357,8 @@ def main() -> int:
         url = os.environ.get("NOTIFY_URL", "").strip()
         notify = Notify(url, log) if url else None
         if notify and args.test:
-            notify.send({"title": "RiverChart test", "iconUrl": icon("normal"), "text": f"Alerts are set up. You will hear from RiverChart when the river or groundwater needs attention.\n{SITE}"})
+            notify.send({"title": "RiverChart test", "iconUrl": icon("normal"),
+                         "text": f"Alerts are set up. You will hear from RiverChart when the river or groundwater needs attention.\n{SITE}"})
         run(args.store, notify, os.environ.get("NOTIFY_BEACON_URL", "").strip() or None, log)
     except Exception as e:  # noqa: BLE001 - alerts must never break the data update
         log(f"alerts failed: {type(e).__name__}: {e}")

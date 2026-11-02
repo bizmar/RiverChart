@@ -1,0 +1,11 @@
+# Lint settings for scripts/ and tests/ (checked on every pull request, see .github/workflows/checks.yml).
+target-version = "py312"
+line-length = 160
+
+[lint]
+# pycodestyle errors, pyflakes (unused or undefined names) and bugbear (likely bugs).
+select = ["E", "F", "W", "B"]
+ignore = [
+  "E731",  # small lambdas are used on purpose
+  "B905",  # zip() without strict=: the lengths are equal by construction
+]
