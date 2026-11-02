@@ -19,7 +19,8 @@ NOW = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
 WEBHOOK = "https://push.getnotifyapp.com/notify/ABC12345?token=secret123"
 
 
-def write_store(root: Path, level: float, rise: float = 0, gw_cm: float = -1448, flow_class="običajni pretok", age_h=0.5):
+def write_store(root: Path, level: float, rise: float = 0, gw_cm: float = -1448, flow_class="običajni pretok", age_h=0.5,
+                zalog=None, zalog_date="2026-11-06"):
     """A store with the Ljubljanica at `level` cm, `rise` cm higher than 6 h ago."""
     t = NOW - timedelta(hours=age_h)
     iso = lambda x: x.strftime("%Y-%m-%dT%H:%MZ")  # noqa: E731
@@ -31,6 +32,8 @@ def write_store(root: Path, level: float, rise: float = 0, gw_cm: float = -1448,
     (root / "G85040" / "live" / "2026-11.csv").write_text("time,level,flow,temp\n" + "\n".join(gw) + "\n")
     (root / "stations.json").write_text(json.dumps({
         "groundwater": {"id": "G85040", "datum": 287.40, "level": round(287.40 + gw_cm / 100, 2)},
+        "groundwater_zalog": {"reference": {"date": "2023-11-06", "value": 266.38}, "estimate": None if zalog is None else
+                              {"last": {"date": zalog_date, "value": zalog}, "rmse": 0.22}},
         "stations": [
             {"id": "5078", "river": "Ljubljanica", "place": "Moste I", "time": iso(t), "level": level, "flow": 50.0,
              "flow_class": flow_class, "thresholds": {"flow": {"1": 230.0}}},
@@ -129,6 +132,24 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(self.gw.sent(), ["Ljubljanica rising fast"])
         self.assertEqual(state["level"], "heads-up")
         self.assertEqual(self.gw.paths("/live-activity"), [])  # no tile for a heads-up
+
+    def test_zalog_estimate_near_the_reference(self):
+        self.run_at(level=120, zalog=263.3)
+        state = self.run_at(level=120, zalog=265.95)  # 0.43 m below the reference
+        self.assertEqual(self.gw.sent(), ["Zalog groundwater near the reference"])
+        msg = next(b for p, _, b in self.gw.calls if p.startswith("/notify-json/"))
+        self.assertIn("about 265.95 m (±0.22), 0.43 m below the reference level (2023-11-06)", msg["text"])
+        self.assertEqual(state["level"], "heads-up")
+        self.run_at(level=120, zalog=265.75)  # 0.63 m below: still on (hysteresis)
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=120, zalog=265.6)
+        self.assertEqual(self.gw.sent(), ["Zalog groundwater falling"])
+
+    def test_old_zalog_estimate_is_ignored(self):
+        self.run_at(level=120)
+        state = self.run_at(level=120, zalog=266.5, zalog_date="2026-11-01")
+        self.assertEqual(self.gw.sent(), [])
+        self.assertNotIn("zalog_near", state["active"])
 
     def test_failed_notification_is_retried(self):
         self.run_at(level=150)
