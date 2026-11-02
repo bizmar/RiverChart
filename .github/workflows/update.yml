@@ -23,6 +23,10 @@ on:
         description: Send a test notification to the phone (Notify!)
         type: boolean
         default: false
+      backup:
+        description: Make a backup copy of the data now (normally weekly, on Mondays)
+        type: boolean
+        default: false
   push:
     branches: [main]
 
@@ -90,6 +94,30 @@ jobs:
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit --quiet -m "Data as of $(date -u +%Y-%m-%dT%H:%MZ)"
           git push --quiet --force "$REPO_URL" data
+
+      # The data branch keeps only its latest state, so a bad run could wipe the history.
+      # Every Monday (daily archive run) a copy goes to the "data-backups" release; the newest 8 are kept.
+      - name: Weekly data backup
+        if: steps.fetch.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_REPO: ${{ github.repository }}
+          FORCE: ${{ inputs.backup }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          if [ "$FORCE" != true ] && { [ "$SCHEDULE" != "17 3 * * *" ] || [ "$(date -u +%u)" != 1 ]; }; then
+            echo "Not backup day"; exit 0
+          fi
+          tag=data-backups
+          file="riverchart-data-$(date -u +%Y-%m-%d).tar.gz"
+          tar -czf "$file" --exclude .git -C store .
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --latest=false --title "Data backups" \
+            --notes "Weekly copies of the data branch (the newest 8). To restore one, see README.md, 'Data backups'."
+          gh release upload "$tag" "$file" --clobber
+          gh release view "$tag" --json assets -q '.assets[].name' | sort | head -n -8 | while read -r old; do
+            gh release delete-asset "$tag" "$old" -y
+          done
+          echo "Backed up $file ($(du -h "$file" | cut -f1))"
 
       - name: Assemble site
         run: |

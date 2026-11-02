@@ -91,6 +91,19 @@ VOKA-P-1gl/daily.csv        the Zalog well, daily, level in m above sea level (s
 
 Units: level in cm (on the gauge's own scale, not above sea level), flow in m³/s, temperature in °C. Groundwater level in cm relative to the well top, as ARSO publishes it; `stations.json` also gives the latest value in metres above sea level.
 
+## Data backups
+
+The `data` branch only keeps its latest state. Every Monday the workflow saves a copy of it as an asset of the [data-backups](https://github.com/bizmar/RiverChart/releases/tag/data-backups) release, and keeps the newest 8. To make one now: **Actions → Update data and publish → Run workflow → Make a backup copy of the data now**.
+
+To restore one: download the `.tar.gz`, unpack it into an empty folder, and push that folder as the `data` branch:
+
+```
+mkdir restore && tar -xzf riverchart-data-YYYY-MM-DD.tar.gz -C restore && cd restore
+git init -b data && git add -A && git commit -m "Restore data" && git push --force https://github.com/bizmar/RiverChart.git data
+```
+
+The next run carries on from there.
+
 ## Setup (one-time)
 
 1. **Settings → Pages → Build and deployment → Source: GitHub Actions**
