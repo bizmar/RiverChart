@@ -9,6 +9,7 @@ The store is a plain folder of CSV/JSON files that the dashboard reads directly:
     <id>/live/<YYYY-MM>.csv    measured readings (10-60 min apart), times in UTC
     G<id>/...                  the same for the groundwater well (level = ARSO's "Nivo", cm below the well top)
     VOKA-<id>/daily.csv        VOKA SNAGA's daily groundwater levels at Zalog (m above sea level), imported once
+    VOKA-<id>/estimate.csv     the Zalog well estimated from the rivers, for the days after its data ends
 
 Run regularly (GitHub Actions does it every 30 minutes):
 
@@ -30,7 +31,11 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import arso
+import estimate
 import voka
+
+# The rivers the Zalog estimate is made from: Ljubljanica at Moste I and Sava at Šentjakob.
+ESTIMATE_FROM = {"L": "5078", "S": "3570"}
 
 # Zalog, Ljubljana - where the Ljubljanica flows into the Sava.
 HOME = {"name": "Zalog", "lat": 46.0700, "lon": 14.6150}
@@ -339,6 +344,37 @@ def zalog_well(root: Path, log) -> dict | None:
         "highest": {"date": hi[0], "value": hi[1]},
         "lowest": {"date": lo[0], "value": lo[1]},
         "reference": {"date": REFERENCE_DATE, "value": float(ref)} if ref else None,
+        "estimate": zalog_estimate(root, store, dict(days), log),
+    }
+
+
+def daily_values(root: Path, station_id: str, field: str) -> dict[str, float]:
+    rows = read_table(root / station_id / "daily.csv")
+    return {d: float(r[field]) for d, r in rows.items() if r.get(field)}
+
+
+def zalog_estimate(root: Path, store: StationStore, well: dict[str, float], log) -> dict | None:
+    """Estimate the Zalog well from the rivers for the days after its data ends; write estimate.csv."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    try:
+        flows = {k: daily_values(root, sid, "flow") for k, sid in ESTIMATE_FROM.items()}
+        result = estimate.estimate(well, flows["L"], flows["S"], today)
+    except Exception as e:  # noqa: BLE001 - an estimate is a nice-to-have; never fail the run
+        log(f"    estimate failed: {e}")
+        result = None
+    path = store.dir / "estimate.csv"
+    if not result or not result["days"]:
+        path.unlink(missing_ok=True)
+        return None
+    write_table(path, ["date", "level"], {d: {"date": d, "level": f"{v:.2f}"} for d, v in result["days"]})
+    last = result["days"][-1]
+    log(f"    estimate: {len(result['days'])} days, now {last[1]:.2f} m (error about ±{result['rmse']:.2f} m)")
+    return {
+        "from": [ESTIMATE_FROM["L"], ESTIMATE_FROM["S"]],
+        "first": result["days"][0][0],
+        "last": {"date": last[0], "value": last[1]},
+        "rmse": result["rmse"],
+        "fit": result["fit"],
     }
 
 
