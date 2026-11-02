@@ -16,6 +16,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 - **times above a value**: type e.g. 250 cm and the chart marks every stretch above it in red, with a list of each time (dates, how long, peak). Tap one to jump there. For flow, ARSO's flood-stage values are offered as suggestions
 - **past high water**: every event since 2006 with the Ljubljanica averaging 240 cm or more at Moste I, or Zalog groundwater within 0.4 m of the reference level, with each event's peaks. Tap one to open that month in the **All** view
 - a data table and a CSV download for whatever range you are looking at
+- **share as an image**: the share button next to the date puts the chart as shown, with a title and the time span, on a PNG. Phones open the share sheet; computers download it
 - every nearby ARSO gauge, sorted by distance from Zalog
 - **data status**: when each source last delivered (site update, the river station, Hrastje, the Zalog estimate, the rain forecast), with a ⚠ when one is later than usual, and the gaps of more than a week in the shown station's record since 2015
 - **installable app**: on iPhone, Safari → Share → **Add to Home Screen**; on Android or desktop Chrome, **Install app**. It opens full screen, and without a network it shows the last data it saw (`site/sw.js`, `site/manifest.webmanifest`)

@@ -1278,6 +1278,7 @@ async function init() {
   // Open the calendar wherever the button is clicked (desktop browsers otherwise only open it from a tiny icon).
   $("date").addEventListener("click", () => { try { $("date").showPicker(); } catch { /* older browsers: typing still works */ } });
   $("date-clear").onclick = () => jumpToDate(null);
+  $("share").onclick = () => shareChart().catch((e) => { if (e?.name !== "AbortError") showError(`Could not share the chart (${e.message}).`); });
   // A different RiverChart link pasted into an open tab (our own updates use replaceState, which doesn't fire this).
   window.addEventListener("hashchange", () => {
     state.picked = null;
@@ -1379,6 +1380,52 @@ function renderDataStatus() {
     const long = gaps.filter(([a, b]) => (Date.parse(b) - Date.parse(a)) / (24 * HOUR) + 1 > 7);
     const fmt = ([a, b]) => `${day(a)} – ${day(b)} (${Math.round((Date.parse(b) - Date.parse(a)) / (24 * HOUR)) + 1} days)`;
     row(`Gaps since 2015, ${st?.place ?? state.station}`, long.length ? long.map(fmt) : "none", false);
+  }
+}
+
+// Share the chart as a picture: the chart as drawn, with a title (what and where) and the time span on top.
+// Phones get the share sheet; elsewhere the PNG is downloaded.
+async function shareChart() {
+  const ratio = 2;
+  const url = chart.getDataURL({ type: "png", pixelRatio: ratio, backgroundColor: css("--surface"), excludeComponents: ["dataZoom"] });
+  const img = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = url; });
+  const head = 84 * ratio, foot = 30 * ratio, pad = 16 * ratio;
+  // The zoom slider is left out of the picture; trim the empty strip it leaves at the bottom.
+  const cut = (isCompact() ? 24 : 46) * ratio, h = img.height - cut;
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width;
+  canvas.height = h + head + foot;
+  const g = canvas.getContext("2d");
+  g.fillStyle = css("--surface");
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  const st = state.byId[state.station];
+  const what = panels().map((id) => METRICS[id].short).join(" · ");
+  const where = WELLS.includes(state.metric) || state.metric === GROUND ? "Zalog area" : `${st?.river ?? ""}, ${st?.place ?? ""}`;
+  const [s, e] = state.window;
+  g.textBaseline = "top";
+  // Write a line, shrinking the font until it fits the width.
+  const line = (text, size, weight, color, y) => {
+    let px = size * ratio;
+    do { g.font = `${weight} ${px}px ${css("--font")}`; px -= ratio; } while (g.measureText(text).width > canvas.width - 2 * pad && px > 8 * ratio);
+    g.fillStyle = color;
+    g.fillText(text, pad, y);
+  };
+  line(where, 20, 600, css("--ink"), pad);
+  line(`${what} · ${shortDateFmt.format(s)} – ${shortDateFmt.format(e)}`, 14, 400, css("--ink-2"), pad + 30 * ratio);
+  g.drawImage(img, 0, 0, img.width, h, 0, head, img.width, h);
+  g.fillStyle = css("--muted");
+  g.font = `${12 * ratio}px ${css("--font")}`;
+  g.fillText("RiverChart · bizmar.github.io/RiverChart · data ARSO", pad, head + h + 8 * ratio);
+  const blob = await new Promise((ok) => canvas.toBlob(ok, "image/png"));
+  const file = new File([blob], `riverchart-${isoDay(e)}.png`, { type: "image/png" });
+  if (navigator.canShare?.({ files: [file] })) {
+    await navigator.share({ files: [file], title: `RiverChart · ${where}` });
+  } else {
+    const a = el("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = file.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   }
 }
 
