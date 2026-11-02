@@ -1,7 +1,7 @@
 // RiverChart's service worker: makes the site installable and keeps the last data for offline use.
 // Everything is fetched from the network first and saved; without a network the saved copy is used.
 // The chart library never changes (its file name has the version), so it is served from the cache.
-const CACHE = "riverchart-v1";
+const CACHE = "riverchart-v2";
 const SHELL = ["./", "index.html", "style.css", "app.js", "vendor/echarts-5.6.0.min.js", "favicon.svg", "manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
