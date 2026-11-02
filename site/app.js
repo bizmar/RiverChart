@@ -217,6 +217,7 @@ function buildPoints(c, metric) {
 
 // state.metric is one of METRICS, or ALL for the three measurements stacked on one time axis.
 const ALL = "all";
+let DEFAULT_STATION_ID = null; // the Ljubljanica at Moste I, for the past-events cards
 let chart;
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -1224,6 +1225,7 @@ async function init() {
   state.byId = Object.fromEntries(catalogue.stations.map((s) => [s.id, s]));
   state.gw = catalogue.groundwater ?? null;
   state.zalog = catalogue.groundwater_zalog ?? null;
+  DEFAULT_STATION_ID = state.byId[catalogue.default]?.tracked ? catalogue.default : null;
   state.rain = catalogue.rain ?? null;
   state.station = state.byId[catalogue.default]?.tracked ? catalogue.default : catalogue.stations.find((s) => s.tracked)?.id;
   readHash();
@@ -1232,7 +1234,52 @@ async function init() {
   $("updated").append(el("span", "extra", " · every 30 min"));
   $("updated").title = dateFmt.format(gen) + " " + timeFmt.format(gen);
   renderNearby();
+  renderEvents(catalogue.events ?? []);
   if (state.station) await update();
+}
+
+// Past high-water events: each card shows the peaks and opens that day on the chart (all measurements).
+function renderEvents(events) {
+  const grid = $("events");
+  grid.replaceChildren();
+  $("events-section").hidden = !events.length;
+  const monthFmt = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+  const dayFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  const day = (iso) => Date.parse(iso + "T12:00Z");
+  const SHOWN = 6;
+  events.forEach((ev, i) => {
+    const card = el("button", "station-card tracked event-card");
+    card.hidden = i >= SHOWN;
+    card.type = "button";
+    const span = ev.start === ev.end ? dayFmt.format(day(ev.start)) : `${dayFmt.format(day(ev.start))} – ${dayFmt.format(day(ev.end))}`;
+    card.append(el("div", "name", monthFmt.format(day(ev.peak))), el("div", "meta", span));
+    const vals = el("div", "vals");
+    const val = (label, v, unit, digits = 0) => {
+      if (!v) return;
+      const s = el("span");
+      s.append(document.createTextNode(`${label} `), el("b", null, nf(digits).format(v.value)), document.createTextNode(` ${unit}`));
+      vals.append(s);
+    };
+    val("Ljubljanica", ev.ljubljanica, "cm");
+    val("Sava", ev.sava_flow, "m³/s");
+    val("Zalog", ev.zalog, "m", 2);
+    card.append(vals);
+    card.onclick = async () => {
+      state.station = DEFAULT_STATION_ID ?? state.station;
+      state.metric = ALL;
+      state.range = "30d"; // wide enough to see the rise and the fall
+      state.picked = ev.peak;
+      await update();
+      $("chart").scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    grid.append(card);
+  });
+  if (events.length > SHOWN) {
+    const more = el("button", "link-button events-more", `Show all ${events.length}`);
+    more.type = "button";
+    more.onclick = () => { for (const c of grid.children) c.hidden = false; more.remove(); };
+    grid.after(more);
+  }
 }
 
 // ---------------------------------------------------------------- theme preference

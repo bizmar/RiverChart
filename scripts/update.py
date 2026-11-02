@@ -381,6 +381,41 @@ def zalog_estimate(root: Path, store: StationStore, well: dict[str, float], log)
     }
 
 
+# Past high water, listed on the site: days when the Ljubljanica at Moste I averaged at least EVENT_CM,
+# or the Zalog well was within EVENT_BELOW_REF_M of the reference level. Days up to 5 apart are one event.
+EVENT_CM = 240
+EVENT_BELOW_REF_M = 0.40
+
+
+def past_events(root: Path, zalog: dict | None) -> list[dict]:
+    """High-water events since the record began, newest first, with the peak of each series."""
+    lj = {d: float(r["level"]) for d, r in read_table(root / DEFAULT_STATION / "daily.csv").items() if r.get("level")}
+    sava = {d: float(r["flow"]) for d, r in read_table(root / "3570" / "daily.csv").items() if r.get("flow")}
+    well = {d: float(r["level"]) for d, r in read_table(root / ZALOG_WELL["id"] / "daily.csv").items() if r.get("level")}
+    ref = (zalog or {}).get("reference") or {}
+    days = sorted({d for d, v in lj.items() if v >= EVENT_CM}
+                  | ({d for d, v in well.items() if v >= ref["value"] - EVENT_BELOW_REF_M} if ref else set()))
+    runs: list[list[str]] = []
+    for d in days:
+        if runs and (date.fromisoformat(d) - date.fromisoformat(runs[-1][1])).days <= 5:
+            runs[-1][1] = d
+        else:
+            runs.append([d, d])
+
+    def peak(series: dict[str, float], a: str, b: str, pad: int = 2) -> dict | None:
+        lo = (date.fromisoformat(a) - timedelta(days=pad)).isoformat()
+        hi = (date.fromisoformat(b) + timedelta(days=pad)).isoformat()
+        vals = [(v, d) for d, v in series.items() if lo <= d <= hi]
+        return {"value": max(vals)[0], "date": max(vals)[1]} if vals else None
+
+    out = []
+    for a, b in reversed(runs):
+        ev = {"start": a, "end": b, "ljubljanica": peak(lj, a, b), "sava_flow": peak(sava, a, b), "zalog": peak(well, a, b)}
+        ev["peak"] = (ev["zalog"] or ev["ljubljanica"])["date"]
+        out.append(ev)
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--store", type=Path, default=Path("store"), help="data folder (default: ./store)")
@@ -450,9 +485,11 @@ def main() -> int:
         "home": HOME,
         "default": DEFAULT_STATION,
         "radius_km": RADIUS_KM,
+        "events": past_events(args.store, zalog),
         "groundwater": groundwater,
         "groundwater_zalog": zalog,
         "rain": rainfall,
+        "events": past_events(args.store, zalog),
         "stations": [
             {
                 "id": s["id"],

@@ -13,6 +13,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
 - a **date picker**: jump to any day and see its level, flow and temperature in one line
 - **times above a value**: type e.g. 250 cm and the chart marks every stretch above it in red, with a list of each time (dates, how long, peak). Tap one to jump there. For flow, ARSO's flood-stage values are offered as suggestions
+- **past high water**: every event since 2006 with the Ljubljanica averaging 240 cm or more at Moste I, or Zalog groundwater within 0.4 m of the reference level, with each event's peaks. Tap one to open that month in the **All** view
 - a data table and a CSV download for whatever range you are looking at
 - every nearby ARSO gauge, sorted by distance from Zalog
 - light and dark mode that follows your device, with a manual override, and a dense chart-first layout on phones
