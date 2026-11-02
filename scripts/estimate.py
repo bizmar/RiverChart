@@ -27,6 +27,18 @@ def day_range(first: str, last: str) -> list[str]:
     return [(a + timedelta(days=i)).isoformat() for i in range((b - a).days + 1)]
 
 
+def interpolated(series: dict[str, float], days: list[str]) -> dict[str, float]:
+    """`series` with gaps between known days filled by a straight line (nothing before the first or after the last)."""
+    known = [d for d in days if d in series]
+    out = dict((d, series[d]) for d in known)
+    index = {d: i for i, d in enumerate(days)}
+    for a, b in zip(known, known[1:]):
+        ia, ib = index[a], index[b]
+        for i in range(ia + 1, ib):
+            out[days[i]] = series[a] + (series[b] - series[a]) * (i - ia) / (ib - ia)
+    return out
+
+
 def smoothed(series: dict[str, float], days: list[str], tau: float) -> dict[str, float]:
     """Exponential moving average over `days`. Missing days keep the previous value."""
     out, v = {}, None
@@ -40,8 +52,12 @@ def smoothed(series: dict[str, float], days: list[str], tau: float) -> dict[str,
 
 
 def feature_rows(inputs: dict[str, dict[str, float]], days: list[str]) -> dict[str, list[float]]:
-    """{day: [1, f1, f2, ...]} for every day where all inputs are known."""
-    cols = [smoothed(inputs[name], days, tau) for name, tau in FEATURES]
+    """{day: [1, f1, f2, ...]} for every day where all inputs are known.
+
+    Gaps in an input are bridged by a straight line first, so the slow averages keep moving through them.
+    """
+    filled = {name: interpolated(series, days) for name, series in inputs.items()}
+    cols = [smoothed(filled[name], days, tau) for name, tau in FEATURES]
     return {d: [1.0] + [c[d] for c in cols] for d in days if all(d in c for c in cols)}
 
 
@@ -97,7 +113,9 @@ def estimate(well: dict[str, float], ljubljanica: dict[str, float], sava: dict[s
     first_well, last_well = min(well), max(well)
     start = (date.fromisoformat(first_well) - timedelta(days=WARMUP_DAYS)).isoformat()
     rows = feature_rows({"L": ljubljanica, "S": sava}, day_range(start, today))
-    train = sorted(d for d in well if d in rows)
+    # Fit and estimate only on days with real readings of both rivers, never on bridged gaps.
+    measured = {d for d in rows if d in ljubljanica and d in sava}
+    train = sorted(d for d in well if d in measured)
     if len(train) < 2 * TEST_DAYS:
         return None
 
@@ -108,7 +126,7 @@ def estimate(well: dict[str, float], ljubljanica: dict[str, float], sava: dict[s
     test_rmse = rmse(trial, [rows[d] for d in late], [well[d] for d in late])
 
     coef = fit([rows[d] for d in train], [well[d] for d in train])
-    out = [(d, round(predict(coef, rows[d]), 2)) for d in sorted(rows) if d > last_well]
+    out = [(d, round(predict(coef, rows[d]), 2)) for d in sorted(measured) if d > last_well]
     return {
         "days": out,
         "rmse": round(test_rmse, 2),

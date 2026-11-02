@@ -147,6 +147,10 @@ async function stationData(id) {
     const [meta, daily] = await Promise.all([getText(`${id}/meta.json`).then(JSON.parse), getText(`${id}/daily.csv`).catch(() => "date\n")]);
     c.meta = meta;
     c.daily = parseDaily(daily);
+    // The Zalog well comes with an estimate from the rivers for the days after its data ends.
+    if (id === state.zalog?.id && state.zalog.estimate) {
+      c.estimate = parseDaily(await getText(`${id}/estimate.csv`).catch(() => "date\n")).filter((d) => d.level != null);
+    }
     await loadMonths(id, meta.live_months.slice(-2));
   }
   return c;
@@ -172,6 +176,21 @@ function seriesFor(id) {
   const pts = buildPoints(c, "level");
   // Zalog is stored in metres already; Hrastje as ARSO publishes it.
   return id === "zalog" ? pts : pts.map((p) => (p[1] == null ? p : [p[0], gwMetres(p[1]), ...p.slice(2)]));
+}
+
+// The Zalog estimate as chart points. It starts at the last measured day, so the dashed line joins the solid one,
+// and breaks wherever the river data it is made from has a gap (as the measured lines do).
+function estimatePoints() {
+  const c = state.cache[state.zalog?.id];
+  if (!c?.estimate?.length) return [];
+  const last = [...c.daily].reverse().find((d) => d.level != null);
+  const pts = [];
+  for (const d of [...(last ? [last] : []), ...c.estimate]) {
+    const prev = pts[pts.length - 1];
+    if (prev && d.t - prev[0] > 4 * DAY) pts.push([prev[0] + 1, null]);
+    pts.push([d.t, d.level, 1]);
+  }
+  return pts;
 }
 
 // One line: measured readings where they are loaded, daily means (ARSO's archive or our own) for every other day.
@@ -231,6 +250,7 @@ function inkOn(hex) {
 
 function buildAllSeries() {
   state.series = Object.fromEntries(panels().map((id) => [id, seriesFor(id)]));
+  state.estimate = panels().includes("zalog") ? estimatePoints() : [];
 }
 
 const panelTitle = (id) => METRICS[id].label;
@@ -317,16 +337,19 @@ function chartOption() {
       borderColor: css("--border"),
       textStyle: { color: css("--ink") },
       formatter: (params) => {
-        const shown = params.filter((x) => x.value[1] != null).sort((a, b) => a.seriesIndex - b.seriesIndex);
+        // Estimate series come after the panels: show the dashed line (not its band) as "≈ estimated".
+        const shown = params.filter((x) => x.value[1] != null && (x.seriesIndex < n || x.seriesId === "est-line"))
+          .sort((a, b) => a.seriesIndex - b.seriesIndex);
         if (!shown.length) return "";
         const [t, , daily] = shown[0].value;
         const when = daily ? `${dateFmt.format(t)} · daily mean` : `${dateFmt.format(t)}, ${timeFmt.format(t)}`;
         return `<div style="font-size:13px;color:${ink2}">${when}</div>` + shown.map((p) => {
-          const id = ids[p.seriesIndex];
+          const est = p.seriesIndex >= n, id = est ? "zalog" : ids[p.seriesIndex];
+          const key = est ? `border-top:2px dashed ${color(id)}` : `height:2px;background:${color(id)}`;
           return `<div style="display:flex;align-items:center;gap:8px;margin-top:4px">` +
-            `<span style="display:inline-block;width:14px;height:2px;background:${color(id)};border-radius:1px"></span>` +
-            `<b style="font-size:16px">${fmtVal(p.value[1], id)} ${METRICS[id].unit}</b>` +
-            `<span style="color:${ink2}">${METRICS[id].short}</span></div>`;
+            `<span style="display:inline-block;width:14px;${key};border-radius:1px"></span>` +
+            `<b style="font-size:16px">${est ? "≈ " : ""}${fmtVal(p.value[1], id)} ${METRICS[id].unit}</b>` +
+            `<span style="color:${ink2}">${METRICS[id].short}${est ? ` estimated (±${fmtVal(state.zalog.estimate.rmse, id)})` : ""}</span></div>`;
         }).join("");
       },
     },
@@ -371,8 +394,21 @@ function chartOption() {
           { offset: 1, color: hexAlpha(color(id), 0) },
         ]),
       },
-    })),
+    })).concat(estimateSeries(ids, color)),
   };
+}
+
+// The Zalog estimate: a dashed line, with a band of ± its typical error (a stacked pair: invisible floor + band).
+function estimateSeries(ids, color) {
+  const i = ids.indexOf("zalog"), pts = state.estimate, err = state.zalog?.estimate?.rmse;
+  if (i < 0 || !pts?.length || err == null) return [];
+  const c = color("zalog");
+  const base = { type: "line", xAxisIndex: i, yAxisIndex: i, showSymbol: false, silent: true, emphasis: { disabled: true }, connectNulls: false };
+  return [
+    { ...base, id: "est-floor", stack: "est", data: pts.map(([t, v]) => [t, v == null ? null : v - err]), lineStyle: { opacity: 0 }, tooltip: { show: false } },
+    { ...base, id: "est-band", stack: "est", data: pts.map(([t, v]) => [t, v == null ? null : 2 * err]), lineStyle: { opacity: 0 }, areaStyle: { color: hexAlpha(c, 0.14) }, tooltip: { show: false } },
+    { ...base, id: "est-line", name: "Zalog estimated", data: pts, symbolSize: 8, lineStyle: { width: 2, type: [5, 4], color: c }, itemStyle: { color: c } },
+  ];
 }
 
 function hexAlpha(hex, a) {
@@ -384,11 +420,14 @@ function hexAlpha(hex, a) {
 function panelLines(id, compact, last) {
   const color = css(METRICS[id].color), alert = css("--critical");
   const data = [];
+  // On the Zalog panel the newest value is the estimate, once there is one.
+  const est = id === "zalog" ? [...(state.estimate ?? [])].reverse().find((p) => p[1] != null) : null;
+  if (est) last = est;
   if (compact && last) {
     data.push({
       yAxis: last[1],
       lineStyle: { color, type: "dashed", width: 1, opacity: 0.7 },
-      label: { position: "end", formatter: fmtVal(last[1], id), backgroundColor: color, color: inkOn(color), padding: [2, 4], borderRadius: 2, fontSize: 10, fontWeight: 600 },
+      label: { position: "end", formatter: (est ? "≈" : "") + fmtVal(last[1], id), backgroundColor: color, color: inkOn(color), padding: [2, 4], borderRadius: 2, fontSize: 10, fontWeight: 600 },
     });
   }
   // The Zalog level on a chosen reference day.
@@ -423,7 +462,7 @@ function panelLines(id, compact, last) {
 
 // First and last time with data across the shown panels.
 function dataBounds() {
-  const all = panels().map((id) => state.series[id]).filter((p) => p?.length);
+  const all = [...panels().map((id) => state.series[id]), state.estimate].filter((p) => p?.length);
   if (!all.length) return null;
   return [Math.min(...all.map((p) => p[0][0])), Math.max(...all.map((p) => p[p.length - 1][0]))];
 }
@@ -512,7 +551,7 @@ function renderEmptyNotes() {
   const ids = panels();
   const graphic = ids.map((id, i) => {
     const box = panelBoxes[i];
-    if (!box || ids.length < 2 || visiblePoints(id).length) return { id: `empty-${i}`, type: "text", invisible: true, style: { text: "" } };
+    if (!box || ids.length < 2 || visiblePoints(id).length || (id === "zalog" && visibleEstimate().length)) return { id: `empty-${i}`, type: "text", invisible: true, style: { text: "" } };
     const pts = (state.series[id] ?? []).filter((p) => p[1] != null);
     const until = pts.length && pts[pts.length - 1][0] < state.window[0] ? ` · data ends ${shortDayFmt.format(pts[pts.length - 1][0])}` : "";
     return {
@@ -526,6 +565,11 @@ function renderEmptyNotes() {
     };
   });
   chart.setOption({ graphic });
+}
+
+function visibleEstimate() {
+  const [s, e] = state.window;
+  return (state.estimate ?? []).filter((p) => p[0] >= s && p[0] <= e);
 }
 
 function visiblePoints(id) {
@@ -1002,6 +1046,13 @@ function renderGroundHero() {
       `Highest since ${z.first.slice(0, 4)}: ${fmtVal(z.highest.value, "zalog")} m on ${shortDayFmt.format(dayBounds(z.highest.date)[0])}` +
       (over > 0 ? `, ${fmtVal(over, "zalog")} m above that.` : ".")));
   }
+  // Zalog now: estimated from the rivers, since the well's own data has ended.
+  const est = z?.estimate;
+  if (est && mark) {
+    const gap = mark.value - est.last.value;
+    status.append(el("span", "thresholds", `Zalog now (estimated from the rivers): ≈ ${fmtVal(est.last.value, "zalog")} m ±${fmtVal(est.rmse, "zalog")}, ` +
+      (gap > 0 ? `${fmtVal(gap, "zalog")} m below the reference.` : `at or above the reference.`)));
+  }
   status.hidden = !status.childNodes.length;
 }
 
@@ -1015,10 +1066,12 @@ function renderNearby() {
   const grid = $("nearby");
   grid.replaceChildren();
   const wells = [
-    state.zalog && [state.zalog, `VOKA SNAGA well · daily, to ${shortDayFmt.format(dayBounds(state.zalog.last.date)[0])}`, state.zalog.last.value],
+    state.zalog && (state.zalog.estimate
+      ? [state.zalog, `VOKA SNAGA well · measured to ${shortDayFmt.format(dayBounds(state.zalog.last.date)[0])}, estimated since`, state.zalog.estimate.last.value, "≈ "]
+      : [state.zalog, `VOKA SNAGA well · daily, to ${shortDayFmt.format(dayBounds(state.zalog.last.date)[0])}`, state.zalog.last.value]),
     state.gw && [state.gw, `ARSO groundwater well · ${state.gw.aquifer}`, state.gw.level],
   ].filter(Boolean);
-  for (const [w, about, value] of wells) {
+  for (const [w, about, value, prefix = ""] of wells) {
     const card = el("button", "station-card tracked");
     card.type = "button";
     card.onclick = () => { state.metric = GROUND; update(true); window.scrollTo({ top: 0, behavior: "smooth" }); };
@@ -1028,7 +1081,7 @@ function renderNearby() {
     const vals = el("div", "vals");
     if (value != null) {
       const v = el("span");
-      v.append(el("b", null, fmtVal(value, "zalog")), document.createTextNode(" m a.s.l."));
+      v.append(el("b", null, prefix + fmtVal(value, "zalog")), document.createTextNode(" m a.s.l."));
       vals.append(v);
     }
     card.append(vals);
