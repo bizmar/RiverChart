@@ -516,3 +516,12 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   .event-card .meta { grid-column: 2; grid-row: 1; align-self: baseline; }
   .event-card .vals { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; margin-top: 2px; }
 }
+.status-list { display: grid; gap: 6px; margin: 0; font-size: 0.875rem; }
+.status-list > div { display: grid; grid-template-columns: minmax(140px, 240px) 1fr; gap: 12px; }
+.status-list dt { color: var(--ink-2); }
+.status-list dd { margin: 0; }
+.status-list .late dd { color: var(--up); font-weight: 600; }
+@media (max-width: 640px) {
+  .status-list > div { grid-template-columns: 1fr; gap: 0; padding: 4px 0; border-bottom: 1px solid var(--grid); }
+  .status-list { font-size: 0.8125rem; }
+}
