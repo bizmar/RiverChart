@@ -84,10 +84,10 @@ class AlertTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.addCleanup(self.tmp.cleanup)
 
-    def run_at(self, **store):
+    def run_at(self, now=NOW, **store):
         write_store(self.root, **store)
         self.gw.calls.clear()
-        return alerts.run(self.root, alerts.Notify(WEBHOOK, lambda *a: None), None, lambda *a: None, now=NOW)
+        return alerts.run(self.root, alerts.Notify(WEBHOOK, lambda *a: None), None, lambda *a: None, now=now)
 
     def test_quiet_day_only_refreshes_widgets(self):
         state = self.run_at(level=120)
@@ -111,6 +111,26 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(self.gw.sent(), [])
         self.run_at(level=175)
         self.assertEqual(self.gw.sent(), ["Ljubljanica back down"])
+
+    def test_quiet_hours_hold_heads_ups_until_morning(self):
+        night = datetime(2026, 11, 5, 22, 30, tzinfo=timezone.utc)  # 23:30 in Ljubljana
+        self.assertTrue(alerts.quiet(night))
+        self.assertFalse(alerts.quiet(datetime(2026, 11, 6, 6, 0, tzinfo=timezone.utc)))  # 07:00
+        self.run_at(level=150, now=night)
+        state = self.run_at(level=210, now=night)
+        self.assertEqual(self.gw.sent(), [])
+        self.assertFalse(state["active"]["high"])
+        self.assertEqual(state["level"], "heads-up")  # the widgets still show it
+        self.run_at(level=215, now=night + timedelta(hours=2))
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=212, now=night + timedelta(hours=8))  # 07:30, still high: sent now
+        self.assertEqual(self.gw.sent(), ["Ljubljanica high"])
+
+    def test_quiet_hours_let_warnings_through(self):
+        night = datetime(2026, 11, 5, 23, 0, tzinfo=timezone.utc)
+        self.run_at(level=120, zalog=263.3, now=night)
+        self.run_at(level=180, zalog=265.8, now=night)
+        self.assertEqual(self.gw.sent(), ["Zalog groundwater near the reference"])
 
     def test_flood_stage_is_urgent(self):
         state = self.run_at(level=260, flow_class="prvi visokovodni pretok")

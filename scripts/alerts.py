@@ -13,6 +13,9 @@ While a warning is on, a Live Activity on the Lock Screen follows the Ljubljanic
 The thresholds are checked against 2015-2026 with scripts/backtest.py (report: docs/backtest.md).
 A Lock Screen widget and a Home Screen widget show the latest values all the time.
 
+Between 22:00 and 07:00 (Ljubljana time) only Time Sensitive alerts are sent. The others wait until
+morning and are sent then if they still apply.
+
 Credentials come from the environment and are never written anywhere:
 
     NOTIFY_URL         the device's webhook address from the Notify! app, ...?token=...
@@ -31,6 +34,7 @@ import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -55,6 +59,11 @@ ZALOG_NEAR_M, ZALOG_NEAR_CLEAR_M = 0.70, 0.90
 ZALOG_MAX_AGE_DAYS = 2
 # ARSO's readings older than this: the dashboard can no longer see the river.
 STALE_HOURS = 6
+
+# Quiet hours (local time, from, until): notifications that are not Time Sensitive wait until morning.
+# Warnings and flood stages always get through. A held heads-up is sent then if its rule is still on.
+QUIET_HOURS = (22, 7)
+LOCAL = ZoneInfo("Europe/Ljubljana")
 
 FLOOD_WORDS = re.compile(r"prvi|drug|tretj|visokovod|poplav", re.I)
 COLOURS = {"normal": "#2A78D6", "heads-up": "#FAB219", "warning": "#EC835A", "urgent": "#D03B3B"}
@@ -124,6 +133,12 @@ def snapshot(store: Path, now: datetime) -> dict:
         "zalog_ref_date": ref.get("date"),
         "now": now,
     }
+
+
+def quiet(now: datetime) -> bool:
+    start, end = QUIET_HOURS
+    h = now.astimezone(LOCAL).hour
+    return h >= start or h < end if start > end else start <= h < end
 
 
 # --------------------------------------------------------------------------- rules
@@ -297,9 +312,13 @@ def run(store: Path, notify: Notify | None, beacon_url: str | None, log, now: da
 
     if notify:
         ids = state.setdefault("ids", {})
+        hush = quiet(now)
         for m in msgs:
             rule = m.pop("rule")
-            if not notify.send(m):
+            if hush and not m["timeSensitive"]:
+                log(f"  quiet hours: holding \"{m['title']}\" until {QUIET_HOURS[1]:02d}:00")
+                on[rule] = before.get(rule, False)  # held: re-checked on the next run
+            elif not notify.send(m):
                 on[rule] = before.get(rule, False)  # not delivered: the next run tries again
         content = tile(snap, lvl)
         widget = {"title": "Ljubljanica", "value": fmt(snap["lj_cm"]), "unit": "cm", "symbol": "water.waves",

@@ -27,7 +27,7 @@ Alerts, a Live Activity and widgets on an iPhone, through the free [Notify!](htt
 | Warning | The Zalog groundwater estimate comes within 0.70 m of the reference level | Time Sensitive notification, and a Live Activity until it is over |
 | Urgent | ARSO reports a flood stage on the Ljubljanica (Moste I) or the Sava (Šentjakob) | Time Sensitive notification and Live Activity |
 
-Each alert is sent once. A rule clears only once the value is well back down (the river under 180 cm, the Zalog estimate more than 0.90 m below the reference), so a level hovering at the threshold does not keep pinging. The warning then sends an "All clear".
+Each alert is sent once. A rule clears only once the value is well back down (the river under 180 cm, the Zalog estimate more than 0.90 m below the reference), so a level hovering at the threshold does not keep pinging. The warning then sends an "All clear". **Quiet hours:** from 22:00 to 07:00 (Ljubljana time), only warnings and flood stages are sent. Heads-ups wait until 07:00 and are sent then if they still apply (`QUIET_HOURS` in `scripts/alerts.py`).
 
 **Why these levels.** `scripts/backtest.py` replays the rules on the daily record for 2015–2026 ([report](docs/backtest.md)). In that time Zalog groundwater came near the reference level three times: December 2017, August 2023 and November 2023.
 - **The Zalog estimate rule** would have warned for all three: 1 day, the same day and 7 days ahead. It had 2 false alarms in 11 years.
