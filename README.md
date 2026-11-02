@@ -11,6 +11,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
   - **Hrastje**: ARSO's nearest automatic well (~4 km west), live, with its record high and low
 - **All** view: water level, flow, temperature and groundwater stacked on one shared time axis, so zooming, panning and the hover readout move together
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
+- a **"normal for this time of year" band** behind each chart: the range of daily means that 80 % of past years had on that date (the 10th to 90th percentile, within a week either side). The hover readout gives the same range. It is shown on views of 45 days or more, so it does not flatten short views, and only for series with 5 or more years of history
 - a **date picker**: jump to any day and see its level, flow and temperature in one line
 - **times above a value**: type e.g. 250 cm and the chart marks every stretch above it in red, with a list of each time (dates, how long, peak). Tap one to jump there. For flow, ARSO's flood-stage values are offered as suggestions
 - **past high water**: every event since 2006 with the Ljubljanica averaging 240 cm or more at Moste I, or Zalog groundwater within 0.4 m of the reference level, with each event's peaks. Tap one to open that month in the **All** view
