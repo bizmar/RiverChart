@@ -27,6 +27,10 @@ on:
         description: Make a backup copy of the data now (normally weekly, on Mondays)
         type: boolean
         default: false
+      timer_token_expires:
+        description: "Filled in by the Cloudflare timer (its token's expiry date, for a renewal reminder). Leave empty."
+        type: string
+        default: ""
   push:
     branches: [main]
 
@@ -80,6 +84,7 @@ jobs:
         env:
           NOTIFY_URL: ${{ secrets.NOTIFY_URL }}
           NOTIFY_BEACON_URL: ${{ secrets.NOTIFY_BEACON_URL }}
+          TIMER_TOKEN_EXPIRES: ${{ inputs.timer_token_expires || vars.TIMER_TOKEN_EXPIRES }}
         run: python3 scripts/alerts.py --store store ${{ inputs.test_alert && '--test' || '' }}
 
       # The data branch is rewritten as a single commit each time, so the repository

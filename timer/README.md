@@ -25,5 +25,15 @@ Cloudflare renames buttons now and then; the steps stay the same.
 ## 3. Check
 
 - After the next :04 or :34, GitHub → **Actions** shows a new run started by `workflow_dispatch`.
-- Cloudflare → Worker → **Logs** shows `dispatch ok`. `HTTP 401/403/404` means the token or its permission is wrong.
+- Cloudflare → Worker → **Logs** shows `dispatch ok, token expires YYYY-MM-DD`. `HTTP 401/403/404` means the token or its permission is wrong.
 - Then the Notify! beacon (`NOTIFY_BEACON_URL`) can be tightened to: expected every **60 minutes**, grace **60 minutes**.
+
+## Renewal reminder
+
+The Worker reads the token's expiry date from GitHub and passes it to each run. 14 days and 3 days before it, the
+phone gets a "Renew the timer token" notification. To renew: make a new token (step 1), then in Cloudflare →
+Worker → **Settings → Variables and Secrets**, edit `GITHUB_TOKEN` and paste it in. The reminders reset by themselves.
+
+If the log shows `dispatch ok` without a date, GitHub did not send one: add the date by hand as a repository
+**variable** (not a secret) named `TIMER_TOKEN_EXPIRES`, e.g. `2027-11-03`, under **Settings → Secrets and
+variables → Actions → Variables**.

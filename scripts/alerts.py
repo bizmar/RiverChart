@@ -19,6 +19,11 @@ Credentials come from the environment and are never written anywhere:
     NOTIFY_BEACON_URL  optional: a Notify! beacon ping address. Pinged on every run, so the app
                        alerts by itself if these updates stop arriving.
 
+Two reminders come once each, as plain notifications:
+    - the Cloudflare timer's GitHub token expires in 14 days, and again at 3 days (the timer passes its expiry
+      date in as TIMER_TOKEN_EXPIRES; it is kept in alerts.json for the runs in between);
+    - ARSO's validated archive has a new year (for example 2025), so the daily record is complete again.
+
 Without NOTIFY_URL the script does nothing. It never fails the data update.
 """
 
@@ -61,6 +66,8 @@ RAIN_MM, RAIN_CLEAR_MM = 70, 35
 ZALOG_MAX_AGE_DAYS = 2
 # ARSO's readings older than this: the dashboard can no longer see the river.
 STALE_HOURS = 6
+# Days before the timer's token expires to remind (once each).
+TOKEN_REMIND_DAYS = (14, 3)
 
 FLOOD_WORDS = re.compile(r"prvi|drug|tretj|visokovod|poplav", re.I)
 COLOURS = {"normal": "#2A78D6", "heads-up": "#FAB219", "warning": "#EC835A", "urgent": "#D03B3B"}
@@ -244,6 +251,54 @@ def tile(snap: dict, lvl: str) -> dict:
     return content
 
 
+# --------------------------------------------------------------------------- reminders
+
+def archive_year(store: Path) -> int | None:
+    """The newest year in ARSO's validated archive for the Ljubljanica at Moste I."""
+    try:
+        to = json.loads((store / RIVER / "meta.json").read_text()).get("archive_to")
+    except (OSError, ValueError):
+        return None
+    return int(to[:4]) if to else None
+
+
+def reminders(store: Path, state: dict, now: datetime, token_expires: str | None) -> list[dict]:
+    """One-off reminders. Updates `state` with what they are based on; sending is the caller's job."""
+    out = []
+    add = lambda key, title, text: out.append(  # noqa: E731
+        {"rule": key, "title": title, "text": f"{text}\n{SITE}", "groupType": "riverchart", "timeSensitive": False,
+         "iconUrl": icon("normal")})
+    if token_expires and re.match(r"\d{4}-\d{2}-\d{2}", token_expires):
+        state["timer_token_expires"] = token_expires[:10]
+    expires = state.get("timer_token_expires")
+    if expires:
+        left = (datetime.fromisoformat(expires).date() - now.astimezone(LOCAL).date()).days
+        due = [d for d in TOKEN_REMIND_DAYS if left <= d]
+        key = f"{expires}/{min(due)}" if due else None
+        if key and state.get("token_reminded") != key:
+            add(f"token:{key}", "Renew the timer token",
+                f"The GitHub token the Cloudflare timer uses expires on {expires} ({max(left, 0)} days). "
+                "Make a new one (timer/README.md, step 1) and replace GITHUB_TOKEN in the Cloudflare Worker.")
+    year = archive_year(store)
+    if year:
+        seen = state.get("archive_year")
+        if seen and year > seen:
+            add(f"archive:{year}", "ARSO archive updated",
+                f"ARSO's validated archive now has {year}. The daily record and the backtest can use it.")
+        else:
+            state["archive_year"] = max(year, seen or 0)
+    return out
+
+
+def remembered(state: dict, rule: str) -> None:
+    """Mark a delivered reminder as sent."""
+    kind, _, key = rule.partition(":")
+    if kind == "token":
+        state["token_reminded"] = key
+    elif kind == "archive":
+        state["archive_year"] = int(key)
+
+
 # --------------------------------------------------------------------------- Notify!
 
 class Notify:
@@ -300,7 +355,8 @@ class Notify:
             self.log(f"  live activity {wid} ended: HTTP {status}")
 
 
-def run(store: Path, notify: Notify | None, beacon_url: str | None, log, now: datetime | None = None) -> dict:
+def run(store: Path, notify: Notify | None, beacon_url: str | None, log, now: datetime | None = None,
+        token_expires: str | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     state_path = store / "alerts.json"
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
@@ -309,7 +365,8 @@ def run(store: Path, notify: Notify | None, beacon_url: str | None, log, now: da
     on = evaluate(snap, before)
     lvl = level(on)
     msgs = messages(snap, before, on)
-    log(f"alerts: level {lvl}; on: {sorted(k for k, v in on.items() if v) or 'none'}; {len(msgs)} to send")
+    notes = reminders(store, state, now, token_expires)
+    log(f"alerts: level {lvl}; on: {sorted(k for k, v in on.items() if v) or 'none'}; {len(msgs) + len(notes)} to send")
 
     if notify:
         ids = state.setdefault("ids", {})
@@ -317,6 +374,10 @@ def run(store: Path, notify: Notify | None, beacon_url: str | None, log, now: da
             rule = m.pop("rule")
             if not notify.send(m):
                 on[rule] = before.get(rule, False)  # not delivered: the next run tries again
+        for m in notes:
+            rule = m.pop("rule")
+            if notify.send(m):
+                remembered(state, rule)  # not delivered: the next run tries again
         content = tile(snap, lvl)
         widget = {"title": "Ljubljanica", "value": fmt(snap["lj_cm"]), "unit": "cm", "symbol": "water.waves",
                   "tint": COLOURS[lvl], "detail": f"{content['body']} · groundwater {fmt(snap['gw_m'], 2)} m",
@@ -335,6 +396,8 @@ def run(store: Path, notify: Notify | None, beacon_url: str | None, log, now: da
     else:
         log("alerts: NOTIFY_URL is not set, nothing sent")
         state["active"] = on
+        for m in notes:
+            remembered(state, m["rule"])
     state["level"], state["checked"] = lvl, now.strftime("%Y-%m-%dT%H:%MZ")
     state_path.write_text(json.dumps(state, indent=1) + "\n")
 
@@ -359,7 +422,8 @@ def main() -> int:
         if notify and args.test:
             notify.send({"title": "RiverChart test", "iconUrl": icon("normal"),
                          "text": f"Alerts are set up. You will hear from RiverChart when the river or groundwater needs attention.\n{SITE}"})
-        run(args.store, notify, os.environ.get("NOTIFY_BEACON_URL", "").strip() or None, log)
+        run(args.store, notify, os.environ.get("NOTIFY_BEACON_URL", "").strip() or None, log,
+            token_expires=os.environ.get("TIMER_TOKEN_EXPIRES", "").strip() or None)
     except Exception as e:  # noqa: BLE001 - alerts must never break the data update
         log(f"alerts failed: {type(e).__name__}: {e}")
     return 0

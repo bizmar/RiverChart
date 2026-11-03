@@ -20,9 +20,9 @@ WEBHOOK = "https://push.getnotifyapp.com/notify/ABC12345?token=secret123"
 
 
 def write_store(root: Path, level: float, rise: float = 0, gw_cm: float = -1448, flow_class="običajni pretok", age_h=0.5,
-                zalog=None, zalog_date="2026-11-06", rain_mm=None, rain_date="2026-11-06"):
+                zalog=None, zalog_date="2026-11-06", rain_mm=None, rain_date="2026-11-06", now=NOW):
     """A store with the Ljubljanica at `level` cm, `rise` cm higher than 6 h ago."""
-    t = NOW - timedelta(hours=age_h)
+    t = now - timedelta(hours=age_h)
     iso = lambda x: x.strftime("%Y-%m-%dT%H:%MZ")  # noqa: E731
     (root / "5078" / "live").mkdir(parents=True, exist_ok=True)
     rows = [f"{iso(t - timedelta(hours=h))},{level - rise * h / 6:.0f},50,12" for h in range(12, -1, -1)]
@@ -85,10 +85,13 @@ class AlertTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.addCleanup(self.tmp.cleanup)
 
-    def run_at(self, **store):
-        write_store(self.root, **store)
+    def run_at(self, now=NOW, token_expires=None, archive_to=None, **store):
+        write_store(self.root, now=now, **store)
+        if archive_to:
+            (self.root / "5078" / "meta.json").write_text(json.dumps({"archive_to": archive_to}))
         self.gw.calls.clear()
-        return alerts.run(self.root, alerts.Notify(WEBHOOK, lambda *a: None), None, lambda *a: None, now=NOW)
+        return alerts.run(self.root, alerts.Notify(WEBHOOK, lambda *a: None), None, lambda *a: None, now=now,
+                          token_expires=token_expires)
 
     def test_quiet_day_only_refreshes_widgets(self):
         state = self.run_at(level=120)
@@ -195,6 +198,44 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(self.gw.sent(), ["No new river data"])
         self.run_at(level=120)
         self.assertEqual(self.gw.sent(), ["River data is back"])
+
+    def test_timer_token_reminders(self):
+        self.run_at(level=120, token_expires="2026-12-31 23:59:59 UTC")
+        self.assertEqual(self.gw.sent(), [])
+        state = self.run_at(level=120, now=NOW + timedelta(days=41))  # 14 days left; the date was remembered
+        self.assertEqual(self.gw.sent(), ["Renew the timer token"])
+        msg = next(b for p, _, b in self.gw.calls if p.startswith("/notify-json/"))
+        self.assertFalse(msg["timeSensitive"])
+        self.assertIn("2026-12-31 (14 days)", msg["text"])
+        self.run_at(level=120, now=NOW + timedelta(days=42))
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=120, now=NOW + timedelta(days=52))  # 3 days left
+        self.assertEqual(self.gw.sent(), ["Renew the timer token"])
+        self.run_at(level=120, now=NOW + timedelta(days=60))
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=120, now=NOW + timedelta(days=60), token_expires="2027-11-01")  # renewed: quiet again
+        self.assertEqual(self.gw.sent(), [])
+        self.assertEqual(state["timer_token_expires"], "2026-12-31")
+
+    def test_failed_reminder_is_retried(self):
+        self.gw.fail_notify = True
+        self.run_at(level=120, token_expires="2026-11-10")
+        self.gw.fail_notify = False
+        self.run_at(level=120)
+        self.assertEqual(self.gw.sent(), ["Renew the timer token"])
+        self.run_at(level=120)
+        self.assertEqual(self.gw.sent(), [])
+
+    def test_new_archive_year(self):
+        self.run_at(level=120, archive_to="2024-12-31")  # first sight: just remembered
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=120, archive_to="2024-12-31")
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=120, archive_to="2025-12-31")
+        self.assertEqual(self.gw.sent(), ["ARSO archive updated"])
+        self.assertIn("now has 2025", next(b for p, _, b in self.gw.calls if p.startswith("/notify-json/"))["text"])
+        self.run_at(level=120, archive_to="2025-12-31")
+        self.assertEqual(self.gw.sent(), [])
 
     def test_bad_webhook_address(self):
         with self.assertRaises(ValueError):

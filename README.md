@@ -42,9 +42,9 @@ Each alert is sent once. A rule clears only once the value is well back down (th
 
 Re-run the backtest after changing a threshold: `cd scripts && python backtest.py --store ../store > ../docs/backtest.md`. The thresholds are at the top of `scripts/alerts.py`.
 
-A notice also comes when ARSO sends no readings for 6 hours, and again when they are back. A Lock Screen widget and a Home Screen widget show the latest values all the time. Warnings and flood stages are Time Sensitive, so they get through Do Not Disturb (allow it under **Settings → Notifications → Notify! → Time Sensitive Notifications**). Heads-ups stay quiet.
+A notice also comes when ARSO sends no readings for 6 hours, and again when they are back. Two plain reminders come once each: when the Cloudflare timer's GitHub token expires in 14 days (and again at 3), and when ARSO's validated archive gains a new year (2025 is still missing). A Lock Screen widget and a Home Screen widget show the latest values all the time. Warnings and flood stages are Time Sensitive, so they get through Do Not Disturb (allow it under **Settings → Notifications → Notify! → Time Sensitive Notifications**). Heads-ups stay quiet.
 
-Setup: in Notify!, copy the device's webhook address (it ends in `?token=...`) and add it under **Settings → Secrets and variables → Actions → New repository secret** as `NOTIFY_URL`. Optionally create a beacon in Notify! (expected every 60 minutes, grace 180) and add its ping address as `NOTIFY_BEACON_URL`. The app then alerts by itself if these updates stop. Check it with **Actions → Update data and publish → Run workflow → Send a test notification**.
+Setup: in Notify!, copy the device's webhook address (it ends in `?token=...`) and add it under **Settings → Secrets and variables → Actions → New repository secret** as `NOTIFY_URL`. Optionally create a beacon in Notify! (expected every 60 minutes, grace 60 with the Cloudflare timer, 180 without) and add its ping address as `NOTIFY_BEACON_URL`. The app then alerts by itself if these updates stop. Check it with **Actions → Update data and publish → Run workflow → Send a test notification**.
 
 ## Which gauge is closest to Zalog?
 
