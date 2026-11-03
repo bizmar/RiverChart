@@ -11,7 +11,7 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
   - **Hrastje**: ARSO's nearest automatic well (~4 km west), live, with its record high and low
 - **All** view: water level, flow, temperature and groundwater stacked on one shared time axis, so zooming, panning and the hover readout move together
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
-- a **"normal for this time of year" band** behind each chart: the range of daily means that 80 % of past years had on that date (the 10th to 90th percentile, within a week either side). The hover readout gives the same range. It is shown on views of 45 days or more, so it does not flatten short views, and only for series with 5 or more years of history
+- a **"normal for this time of year" band** behind each chart: the range of daily means that 80 % of past years had on that date (the 10th to 90th percentile, within a week either side). The hover readout and a label in each panel give the same range. The value scale follows the line, not the band, so short views stay detailed and the band may run past the panel's edge. Only for series with 5 or more years of history
 - a **date picker**: jump to any day and see its level, flow and temperature in one line
 - **times above a value**: type e.g. 250 cm and the chart marks every stretch above it in red, with a list of each time (dates, how long, peak). Tap one to jump there. For flow, ARSO's flood-stage values are offered as suggestions
 - **past high water**: every event since 2006 with the Ljubljanica averaging 240 cm or more at Moste I, or Zalog groundwater within 0.4 m of the reference level, with each event's peaks. Tap one to open that month in the **All** view
@@ -40,7 +40,9 @@ Each alert is sent once. A rule clears only once the value is well back down (th
 - **Warning time:** neither river rule gives much. High groundwater at Zalog follows the rivers within about a day.
 - **A heavy rain forecast** (70 mm or more over 3 days) came 2–10 days before all three events. It also happens about twice a year with nothing after it, so it is a heads-up.
 
-Re-run the backtest after changing a threshold: `cd scripts && python backtest.py --store ../store > ../docs/backtest.md`. A notice also comes when ARSO sends no readings for 6 hours, and again when they are back. A Lock Screen widget and a Home Screen widget show the latest values all the time. The thresholds are at the top of `scripts/alerts.py`.
+Re-run the backtest after changing a threshold: `cd scripts && python backtest.py --store ../store > ../docs/backtest.md`. The thresholds are at the top of `scripts/alerts.py`.
+
+A notice also comes when ARSO sends no readings for 6 hours, and again when they are back. A Lock Screen widget and a Home Screen widget show the latest values all the time. Warnings and flood stages are Time Sensitive, so they get through Do Not Disturb (allow it under **Settings → Notifications → Notify! → Time Sensitive Notifications**). Heads-ups stay quiet.
 
 Setup: in Notify!, copy the device's webhook address (it ends in `?token=...`) and add it under **Settings → Secrets and variables → Actions → New repository secret** as `NOTIFY_URL`. Optionally create a beacon in Notify! (expected every 60 minutes, grace 180) and add its ping address as `NOTIFY_BEACON_URL`. The app then alerts by itself if these updates stop. Check it with **Actions → Update data and publish → Run workflow → Send a test notification**.
 
@@ -71,21 +73,34 @@ ARSO gives the level ("Nivo") in cm relative to the top of the well. The dashboa
 
 ## How it works
 
-Everything runs for free on GitHub:
+Everything runs for free, on GitHub plus a small Cloudflare timer:
 
 ```
-GitHub Actions (every 30 min)            GitHub Pages
-  scripts/update.py                        site/ + data/
-    ├─ ARSO latest-readings XML   ──►  data branch  ──►  https://bizmar.github.io/RiverChart/
-    ├─ ARSO 1-day / 30-day tables
-    ├─ ARSO groundwater well table (Hrastje)
-    └─ ARSO daily archive (hidarhiv)
+Cloudflare Worker (every 30 min) ──► GitHub Actions: "Update data and publish"
+                                       scripts/update.py
+                                         ├─ ARSO latest-readings XML, 1-day / 30-day tables
+                                         ├─ ARSO groundwater well table (Hrastje)
+                                         ├─ ARSO daily archive (hidarhiv)
+                                         ├─ VOKA SNAGA Zalog well (Zenodo, imported once) + estimate
+                                         └─ Open-Meteo rain history and forecast
+                                       scripts/alerts.py  ──► Notify! (iPhone alerts, widgets)
+                                       data branch  ──► GitHub Pages: https://bizmar.github.io/RiverChart/
 ```
 
-- `scripts/arso.py` downloads and parses the ARSO sources. It uses only the Python standard library.
-- `scripts/alerts.py` sends the phone alerts (see above).
-- `scripts/update.py` merges new readings into plain CSV files. They are kept on the `data` branch, which is rewritten as a single commit each time so the repository stays small.
-- `site/` is a static page (HTML + JavaScript + [Apache ECharts](https://echarts.apache.org/)) that reads those CSV files directly.
+| File | What it does |
+|---|---|
+| `scripts/update.py` | Merges new readings into plain CSV files on the `data` branch (rewritten as one commit each run, so the repository stays small). Also lists the past high-water events. |
+| `scripts/arso.py` | Downloads and parses the ARSO sources. |
+| `scripts/voka.py` | Reads VOKA SNAGA's Zalog well from its Zenodo spreadsheet. |
+| `scripts/estimate.py` | Estimates the Zalog well from the rivers after its data ends. |
+| `scripts/rain.py` | Rain over the two catchments from Open-Meteo. |
+| `scripts/alerts.py` | Phone alerts, Live Activity and widgets (see above). |
+| `scripts/backtest.py` | Replays the alert rules on 2015–2026 ([report](docs/backtest.md)). |
+| `scripts/make_icons.js` | Rebuilds the app icons (`node scripts/make_icons.js site`). |
+| `site/` | The static page (HTML, JavaScript, [Apache ECharts](https://echarts.apache.org/)). It reads the CSV files directly; `sw.js` keeps an offline copy. |
+| `timer/` | The Cloudflare Worker that starts the update every 30 minutes ([setup](timer/README.md)). |
+
+The Python scripts use only the standard library.
 
 The first run back-fills each station: the last 30 days at 30-minute resolution, and the complete daily archive, year by year. Every day the last 3 archive years are re-checked, because ARSO validates and publishes them with a delay. When ARSO's archive site is down for maintenance, the check says so in the log and simply tries again the next day.
 
@@ -129,8 +144,7 @@ The next run carries on from there.
 1. **Settings → Pages → Build and deployment → Source: GitHub Actions**
 2. **Actions → "Update data and publish" → Run workflow.** The first run downloads the archives and takes several minutes.
 3. Open `https://bizmar.github.io/RiverChart/`.
-
-After that it updates itself every 30 minutes. GitHub may delay scheduled runs a little at busy times. The 1-day table fills in anything a late run missed.
+4. For reliable 30-minute updates, set up the Cloudflare timer ([timer/README.md](timer/README.md)). On its own, GitHub's schedule often runs only every 3–8 hours. The fine-grained token it uses expires: renew it before then (Notify!'s optional beacon, above, warns you if updates stop). The 1-day table fills in anything a late run missed.
 
 To change the home location, radius or tracked stations, edit the top of `scripts/update.py`.
 
@@ -153,10 +167,12 @@ To block merging until they pass, go to **Settings → Branches → Add branch r
 
 ## Privacy
 
-No cookies, no ads, no tracking. The page loads only from its own site: the chart library ([Apache ECharts](https://echarts.apache.org/), Apache-2.0) is served from `site/vendor/` rather than a CDN. The only thing stored is the colour theme choice (`rc-theme` in the browser's `localStorage`), which stays on the visitor's device. GitHub Pages, as the host, sees visitors' IP addresses like any web server does.
+No cookies, no ads, no tracking. The page loads only from its own site: the chart library ([Apache ECharts](https://echarts.apache.org/), Apache-2.0) is served from `site/vendor/` rather than a CDN. Two things are stored, both on the visitor's device only: the colour theme choice (`rc-theme` in `localStorage`), and the offline copy of the page and its data kept by the service worker. Open-Meteo is called by GitHub Actions, not by visitors' browsers. GitHub Pages, as the host, sees visitors' IP addresses like any web server does.
 
 ## Data and licence
 
-River data comes from the **Slovenian Environment Agency, [ARSO](https://www.arso.gov.si/vode/podatki/)**. Credit ARSO as the source when you reuse it. Recent values are automatic measurements that ARSO has not validated yet.
+- **River and Hrastje groundwater data:** the Slovenian Environment Agency, [ARSO](https://www.arso.gov.si/vode/podatki/). Credit ARSO as the source when you reuse it. Recent values are automatic measurements that ARSO has not validated yet.
+- **Zalog groundwater (P-1gl):** JP VOKA SNAGA, via [Zenodo](https://zenodo.org/records/21789430), CC BY 4.0.
+- **Rain:** [Open-Meteo](https://open-meteo.com/), CC BY 4.0.
 
 Code: MIT licence.
