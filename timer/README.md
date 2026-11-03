@@ -34,6 +34,7 @@ The Worker reads the token's expiry date from GitHub and passes it to each run. 
 phone gets a "Renew the timer token" notification. To renew: make a new token (step 1), then in Cloudflare →
 Worker → **Settings → Variables and Secrets**, edit `GITHUB_TOKEN` and paste it in. The reminders reset by themselves.
 
-If the log shows `dispatch ok` without a date, GitHub did not send one: add the date by hand as a repository
+A token with no expiry date needs no reminder: the log then shows `dispatch ok` without a date. If the token
+does expire and the log still shows no date, add the date by hand as a repository
 **variable** (not a secret) named `TIMER_TOKEN_EXPIRES`, e.g. `2027-11-03`, under **Settings → Secrets and
 variables → Actions → Variables**.
