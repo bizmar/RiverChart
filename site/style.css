@@ -525,3 +525,8 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   .status-list > div { grid-template-columns: 1fr; gap: 0; padding: 4px 0; border-bottom: 1px solid var(--grid); }
   .status-list { font-size: 0.8125rem; }
 }
+.share-button { margin-left: 4px; border: 0; }
+@media (max-width: 640px) {
+  .share-button .share-text { display: none; }
+  .share-button { margin-left: 0; }
+}
