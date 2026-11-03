@@ -1,8 +1,9 @@
 name: Checks
 
-# Runs on every pull request (and on demand). Mark "Checks / python" and "Checks / site" as required in
-# Settings -> Branches (or Rules) so a pull request can only be merged when they pass.
+# Runs on every push to main, every pull request, and on demand. A failed run emails the repo owner.
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 

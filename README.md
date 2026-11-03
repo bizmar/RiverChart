@@ -157,13 +157,13 @@ python3 -m unittest discover tests                # parser and store tests
 python3 scripts/update.py --store site/data       # real data from ARSO
 ```
 
-### Checks on pull requests
+### Checks
 
-Every pull request runs two free checks:
+Every push to `main` and every pull request runs two free checks:
 - **Checks** (`.github/workflows/checks.yml`): ruff lint (settings in `ruff.toml`) and the unit tests for the Python scripts, plus a syntax check of the site's JavaScript. To lint locally: `pip install ruff && ruff check scripts tests`.
-- **CodeQL** (`.github/workflows/codeql.yml`): GitHub's code scanning for security bugs in Python and JavaScript. It also runs weekly. Findings show on the pull request and under **Security → Code scanning**.
+- **CodeQL** (`.github/workflows/codeql.yml`): GitHub's code scanning for security bugs in Python and JavaScript. It also runs weekly. Findings show under **Security → Code scanning**.
 
-To block merging until they pass, go to **Settings → Branches → Add branch ruleset** (target `main`). Turn on **Require status checks to pass**, and add `python`, `site`, `analyze (python)` and `analyze (javascript-typescript)`.
+Changes are pushed straight to `main`; a failed check emails the owner. The `main` ruleset (**Settings → Rules**) requires `python`, `site`, `analyze (python)` and `analyze (javascript-typescript)` on pull requests, with **Repository admin** on its bypass list so direct pushes go through.
 
 ## Privacy
 
