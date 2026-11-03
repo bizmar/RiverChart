@@ -257,8 +257,7 @@ function buildAllSeries() {
 const panelTitle = (id) => METRICS[id].label;
 
 function chartOption() {
-  normalData = {};
-  normalShown = false;
+  normalPanels = new Set();
   const ids = panels();
   const n = ids.length;
   const ink2 = css("--ink-2"), muted = css("--muted"), grid = css("--grid"), axis = css("--axis"), surface = css("--surface");
@@ -288,6 +287,7 @@ function chartOption() {
   // Values a panel's scale must include: the "times above" value, and the reference line on the Zalog panel.
   const mark = state.zalog?.reference?.value;
   const mustShow = (id) => [id === aboveId ? above : null, id === "zalog" ? mark : null].filter((v) => v != null);
+  panelMust = Object.fromEntries(ids.map((id) => [id, mustShow(id).map((x) => (x === mark ? [x, x + 0.3] : [x, x]))]));
   const lastPoint = (id) => { const p = state.series[id]; for (let i = p.length - 1; i >= 0; i--) if (p[i][1] != null) return p[i]; return null; };
   return {
     animation: false,
@@ -446,35 +446,74 @@ function normalAt(id, t) {
 function normalSeries(id, i, span) {
   const n = normals(id);
   if (!n || !span) return [];
-  // One point a day, or a week apart over long spans (the band changes slowly).
-  const step = span[1] - span[0] > 3 * 365 * DAY ? 7 * DAY : DAY;
-  const floor = [], band = [];
-  const start = Date.UTC(new Date(span[0]).getUTCFullYear(), new Date(span[0]).getUTCMonth(), new Date(span[0]).getUTCDate(), 11);
-  for (let t = start; t <= span[1] + DAY; t += step) {
-    const r = n[dayOfYear(new Date(t).toISOString().slice(0, 10))];
-    floor.push([t, r ? r[0] : null]);
-    band.push([t, r ? r[1] - r[0] : null]);
-  }
   const base = { type: "line", xAxisIndex: i, yAxisIndex: i, showSymbol: false, silent: true, z: 1, stack: `normal-${i}`,
     emphasis: { disabled: true }, tooltip: { show: false }, lineStyle: { opacity: 0 }, connectNulls: false };
-  normalData[`normal-floor-${i}`] = floor;
-  normalData[`normal-band-${i}`] = band;
-  // Data is filled in by showNormals() once the window is known.
+  normalPanels.add(id);
+  // The data is filled in by fitAxes() for the visible window.
   return [
     { ...base, id: `normal-floor-${i}`, data: [] },
     { ...base, id: `normal-band-${i}`, data: [], areaStyle: { color: css("--normal"), opacity: 1 } },
   ];
 }
-// The band is shown only for windows of NORMAL_MIN_DAYS or more: it widens the value scale, which would
-// flatten the line in a short view.
-const NORMAL_MIN_DAYS = 45;
-let normalData = {}, normalShown = false;
-function showNormals(s, e) {
-  const want = e - s >= NORMAL_MIN_DAYS * DAY;
-  if (want === normalShown) return;
-  normalShown = want;
-  const series = Object.entries(normalData).map(([id, data]) => ({ id, data: want ? data : [] }));
-  if (series.length) chart.setOption({ series });
+// Band points for the window [s, e]: one at each edge and one a day between, so the band reaches both edges
+// (the zoom drops points outside the window).
+function normalPoints(id, s, e) {
+  const n = normals(id), floor = [], band = [];
+  const day = (t) => new Date(t).toISOString().slice(0, 10);
+  const first = Date.UTC(new Date(s).getUTCFullYear(), new Date(s).getUTCMonth(), new Date(s).getUTCDate() + 1, 0);
+  const step = e - s > 3 * 365 * DAY ? 3 * DAY : DAY; // long views: every third day is plenty
+  for (const t of [s, ...Array.from({ length: Math.max(0, Math.floor((e - first) / step) + 1) }, (_, k) => first + k * step), e]) {
+    if (t < s || t > e) continue;
+    const r = n[dayOfYear(day(t))];
+    floor.push([t, r ? r[0] : null]);
+    band.push([t, r ? r[1] - r[0] : null]);
+  }
+  return { floor, band };
+}
+
+// On a panel with a normal band, the value scale follows the visible line (and the reference or "times above"
+// line), not the band: otherwise the band would widen the scale and flatten the line in a short view.
+// Where the band reaches past the scale it is simply cut off at the panel's edge.
+let normalPanels = new Set(), panelMust = {};
+function fitAxes(s, e) {
+  const ids = panels();
+  if (!ids.some((id) => normalPanels.has(id))) return;
+  const series = [], graphic = [];
+  ids.forEach((id, i) => {
+    if (!normalPanels.has(id)) return;
+    const { floor, band } = normalPoints(id, s, e);
+    series.push({ id: `normal-floor-${i}`, data: floor }, { id: `normal-band-${i}`, data: band });
+    // Name the band and give its range at the end of the view, which also covers a band cut off at the edge.
+    const r = normalAt(id, e), box = panelBoxes[i];
+    graphic.push({
+      id: `normal-note-${i}`, type: "text", silent: true, invisible: !r || !box,
+      left: (box?.left ?? 0) + 8, top: (box?.top ?? 0) + 4, z: 5,
+      style: { text: r ? `Normal for ${shortDayFmt.format(e)}: ${fmtVal(r[0], id)}–${fmtVal(r[1], id)} ${METRICS[id].unit}` : "",
+        fill: css("--ink-2"), font: `${isCompact() ? 10 : 11}px ${css("--font")}`, backgroundColor: hexAlpha(css("--surface").length === 7 ? css("--surface") : "#ffffff", 0.75), padding: [1, 4] },
+    });
+  });
+  const yAxis = ids.map((id) => {
+    if (!normalPanels.has(id)) return {};
+    const vals = visiblePoints(id).map((p) => p[1]);
+    if (id === "zalog") {
+      const err = state.zalog?.estimate?.rmse ?? 0;
+      for (const p of visibleEstimate()) if (p[1] != null) vals.push(p[1] - err, p[1] + err);
+    }
+    if (!vals.length) return { min: null, max: null }; // nothing in view: let ECharts decide
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    for (const [a, b] of panelMust[id] ?? []) { lo = Math.min(lo, a); hi = Math.max(hi, b); }
+    const pad = (hi - lo) * 0.06 || Math.abs(hi) * 0.02 || 1;
+    const step = niceStep((hi - lo + 2 * pad) / 5);
+    let min = Math.floor((lo - pad) / step) * step;
+    if (id === "flow" || (lo >= 0 && min < 0)) min = 0; // no negative scale for values that never are
+    return { min, max: Math.ceil((hi + pad) / step) * step };
+  });
+  chart.setOption({ yAxis, series, graphic });
+}
+// 1, 2, 2.5 or 5 times a power of ten.
+function niceStep(x) {
+  const p = 10 ** Math.floor(Math.log10(x));
+  return [1, 2, 2.5, 5, 10].map((m) => m * p).find((v) => v >= x);
 }
 
 // The Zalog estimate: a dashed line, with a band of ± its typical error (a stacked pair: invisible floor + band).
@@ -585,7 +624,7 @@ function renderChart(keepWindow) {
 let lazyBusy = false;
 async function onWindow(s, e) {
   state.window = [s, e];
-  showNormals(s, e);
+  fitAxes(s, e);
   renderWindowStats();
   renderEmptyNotes();
   if ($("table").closest("details").open) renderTable();
