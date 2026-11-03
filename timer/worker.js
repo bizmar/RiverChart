@@ -5,6 +5,9 @@
 // with only "Actions: Read and write". The Worker's web address does nothing, so it cannot be used to start runs.
 
 const DISPATCH = "https://api.github.com/repos/bizmar/RiverChart/actions/workflows/update.yml/dispatches";
+// Wait a random 0-50 s before asking, so the request doesn't land on the same second as everyone else's cron jobs.
+// Waiting costs no CPU time, so it stays within the free plan.
+const MAX_DELAY_MS = 50_000;
 
 export default {
   async scheduled(event, env, ctx) {
@@ -16,6 +19,7 @@ export default {
 };
 
 async function dispatch(env) {
+  await new Promise((done) => setTimeout(done, Math.random() * MAX_DELAY_MS));
   const r = await fetch(DISPATCH, {
     method: "POST",
     headers: {
