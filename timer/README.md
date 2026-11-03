@@ -15,10 +15,12 @@ GitHub's own schedule stays in the workflow as a backup (and for the daily archi
 ## 2. Cloudflare Worker
 
 1. Sign up at [dash.cloudflare.com](https://dash.cloudflare.com) (free plan, no card needed).
-2. **Workers & Pages → Create → Create Worker** (start from "Hello World"). Name: `riverchart-timer` → **Deploy**.
-3. **Edit code**: replace everything with the contents of `timer/worker.js` → **Deploy**.
-4. Worker → **Settings → Variables and Secrets → Add**: type **Secret**, name `GITHUB_TOKEN`, value = the token from step 1 → **Deploy**.
-5. Worker → **Settings → Trigger Events → Add → Cron Triggers**: `4,34 * * * *` (minute 4 and 34 of every hour, UTC) → **Add**.
+2. **Compute → Workers & Pages → Create application** → **Start with Hello World!** (Workers, not Pages). Name: `riverchart-timer` → **Deploy**.
+3. **Edit code** (top right): replace everything with the contents of `timer/worker.js` → **Deploy**.
+4. Worker → **Settings → Variables and Secrets → + Add**: type **Secret**, name `GITHUB_TOKEN`, value = the token from step 1 → **Deploy**.
+5. Worker → **Settings → Trigger events → + Add → Cron Triggers**: switch to **Cron expression**, enter `4,34 * * * *` (minute 4 and 34 of every hour, UTC) → **Add**.
+
+Cloudflare renames buttons now and then; the steps stay the same.
 
 ## 3. Check
 
