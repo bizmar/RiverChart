@@ -1,10 +1,37 @@
 {
   "extraKnownMarketplaces": {
     "egm": {
-      "source": { "source": "github", "repo": "google/elephant-goldfish-model" }
+      "source": {
+        "source": "github",
+        "repo": "google/elephant-goldfish-model"
+      }
     }
   },
   "enabledPlugins": {
     "egm@egm": true
+  },
+  "permissions": {
+    "allow": [
+      "mcp__github__actions_list",
+      "mcp__github__get_job_logs",
+      "mcp__github__issue_read",
+      "mcp__github__pull_request_read",
+      "mcp__github__get_me",
+      "mcp__claude-code-remote__read_documentation",
+      "mcp__claude-code-remote__list_triggers",
+      "mcp__claude-code-remote__list_repos",
+      "mcp__claude-code-remote__list_computer_folders",
+      "Bash(python3 -m unittest discover tests)",
+      "Bash(ruff check scripts tests)",
+      "Bash(node --check site/app.js)",
+      "Bash(node --check timer/worker.js)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout main)",
+      "Bash(git push origin main)",
+      "Bash(git push -q origin main)"
+    ]
   }
 }
