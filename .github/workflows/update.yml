@@ -98,7 +98,12 @@ jobs:
           git add -A
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit --quiet -m "Data as of $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push --quiet --force "$REPO_URL" data
+          # GitHub sometimes rejects a push for a moment ("fatal error in commit_refs"): try again a few times.
+          for wait in 5 15 45 0; do
+            git push --quiet --force "$REPO_URL" data && exit 0
+            [ "$wait" = 0 ] && exit 1
+            echo "push failed, trying again in ${wait}s"; sleep "$wait"
+          done
 
       # The data branch keeps only its latest state, so a bad run could wipe the history.
       # Every Monday (daily archive run) a copy goes to the "data-backups" release; the newest 8 are kept.
