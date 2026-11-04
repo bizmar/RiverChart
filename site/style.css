@@ -226,7 +226,8 @@ h1 { font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.01em; }
   min-height: 32px;
 }
 .segmented button:hover { color: var(--ink); }
-.segmented button[aria-checked="true"] {
+.segmented button[aria-checked="true"],
+.segmented button[aria-pressed="true"] {
   background: var(--surface);
   color: var(--ink);
   font-weight: 600;
@@ -330,7 +331,8 @@ h1 { font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.01em; }
 .day-readout[hidden] { display: none; }
 .day-readout b { color: var(--ink); }
 .day-readout .note { color: var(--muted); }
-.chart { width: 100%; height: clamp(320px, 52vh, 520px); transition: opacity 0.2s; }
+.chart { position: relative; width: 100%; height: clamp(320px, 52vh, 520px); transition: opacity 0.2s; }
+.chart.multi-2 { height: clamp(480px, 74vh, 700px); }
 .chart.multi { height: clamp(620px, 96vh, 900px); }
 .chart.multi-4 { height: clamp(760px, 112vh, 1080px); }
 .chart.loading { opacity: 0.5; }
@@ -449,7 +451,8 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 
   .segmented { display: flex; flex-wrap: nowrap; gap: 0; padding: 0 4px; background: none; border-radius: 0; }
   .segmented button { flex: 1; min-height: 34px; padding: 4px 2px; border-radius: 0; font-size: 0.8125rem; }
-  .segmented button[aria-checked="true"] { background: none; box-shadow: inset 0 -2px 0 var(--ink); }
+  .segmented button[aria-checked="true"],
+  .segmented button[aria-pressed="true"] { background: none; box-shadow: inset 0 -2px 0 var(--ink); }
   #metrics { border-top: 1px solid var(--grid); border-bottom: 1px solid var(--grid); }
   .range-bar { flex-wrap: nowrap; gap: 0; border-top: 1px solid var(--grid); border-bottom: 1px solid var(--grid); }
   .range-bar #ranges { flex: 1; min-width: 0; }
@@ -461,6 +464,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 
   .chart { height: max(300px, 56svh); }
   /* All three panels fill the screen below the header, station row and tab bar. */
+  .chart.multi-2 { height: max(420px, calc(100svh - 190px)); }
   .chart.multi { height: max(480px, calc(100svh - 150px)); }
   .chart.multi-4 { height: max(600px, calc(100svh - 110px)); }
 
@@ -529,4 +533,24 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 @media (max-width: 640px) {
   .share-button .share-text { display: none; }
   .share-button { margin-left: 0; }
+}
+
+/* Measurement tabs are toggles: the small number is the panel's place from the top. */
+#metrics .pane-no { margin-left: 3px; font-size: 0.65em; font-weight: 700; color: var(--muted); vertical-align: super; line-height: 0; }
+#metrics .all-tab { color: var(--muted); }
+
+/* Pane buttons on each panel's title row (move up, move down, remove), like TradingView's pane controls. */
+.pane-tools { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.pane-tool-row { position: absolute; right: 6px; display: flex; gap: 2px; pointer-events: auto; }
+.pane-tool {
+  display: inline-grid; place-items: center;
+  width: 26px; height: 22px; padding: 0;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--ink-2); cursor: pointer;
+}
+.pane-tool:hover:not(:disabled) { color: var(--ink); border-color: var(--muted); }
+.pane-tool:disabled { opacity: 0.3; cursor: default; }
+@media (max-width: 640px) {
+  .pane-tool-row { right: 48px; } /* clear of the value scale on the right */
+  .pane-tool { width: 28px; height: 20px; border-radius: 5px; }
 }

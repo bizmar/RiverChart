@@ -6,15 +6,15 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 
 - the current water level, flow and water temperature, with the change over the last 24 hours and ARSO's own status (normal / high / flood stage)
 - an **interactive chart**: zoom with the scroll wheel or a pinch, drag to pan, or jump to 2 days … 10 years … the whole record
-- **groundwater** (the **Ground** button): around Zalog, cellars flood from rising groundwater rather than from the river itself. Two charts:
+- **groundwater** (the **Zalog** and **Hrastje** tabs): around Zalog, cellars flood from rising groundwater rather than from the river itself. Two charts:
   - **Zalog**: VOKA SNAGA's well P-1gl in Zalog, daily from 2015 to June 2026, with a reference line at its level on 6 November 2023. After that, a dashed **estimate** from the rivers
   - **Hrastje**: ARSO's nearest automatic well (~4 km west), live, with its record high and low
-- **All** view: water level, flow, temperature and groundwater stacked on one shared time axis, so zooming, panning and the hover readout move together
+- **any combination, in any order**: the tabs (Level, Flow, Temp, Zalog, Hrastje) are toggles, so you can compare any pair or stack them all (**All**). Each panel has TradingView-style buttons to move it up or down or remove it, and the small number on a tab is its place. The panels share one time axis, so zooming, panning and the hover readout move together. The top panel sets the headline and "times above". The link keeps the order (`#m=level,zalog`)
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
 - a **"normal for this time of year" band** behind each chart: the range of daily means that 80 % of past years had on that date (the 10th to 90th percentile, within a week either side). The hover readout and a label in each panel give the same range. The value scale follows the line, not the band, so short views stay detailed and the band may run past the panel's edge. Only for series with 5 or more years of history
 - a **date picker**: jump to any day and see its level, flow and temperature in one line
 - **times above a value**: type e.g. 250 cm and the chart marks every stretch above it in red, with a list of each time (dates, how long, peak). Tap one to jump there. For flow, ARSO's flood-stage values are offered as suggestions
-- **past high water**: every event since 2006 with the Ljubljanica averaging 240 cm or more at Moste I, or Zalog groundwater within 0.4 m of the reference level, with each event's peaks. Tap one to open that month in the **All** view
+- **past high water**: every event since 2006 with the Ljubljanica averaging 240 cm or more at Moste I, or Zalog groundwater within 0.4 m of the reference level, with each event's peaks. Tap one to open that month with everything stacked
 - a data table and a CSV download for whatever range you are looking at
 - **share as an image**: the share button next to the date puts the chart as shown, with a title and the time span, on a PNG. Phones open the share sheet; computers download it
 - every nearby ARSO gauge, sorted by distance from Zalog
@@ -65,7 +65,7 @@ ARSO also runs about 140 automatic groundwater wells ([map and tables](https://w
 
 **The Zalog estimate.** Since the well's data ends in June 2026, `scripts/estimate.py` estimates it from the rivers. The Zalog well follows a weighted mix of the Ljubljanica's flow at Moste I and the Sava's flow at Šentjakob, each averaged over a few days to a few months. That mix is fitted to the well's 2015–2026 record (least squares) on every run. On three years held back from the fit, the estimate is typically within about ±0.2 m. It tends to run low at the sharpest peaks (about 0.5 m low on 6 August 2023). It is shown only on days with real readings of both rivers. The chart draws it dashed, with a band of its typical error. If newer well data is ever imported, the fit uses it automatically.
 
-**Rain.** `scripts/rain.py` gets daily rain from [Open-Meteo](https://open-meteo.com/) (CC BY 4.0) at five points: Vrhnika, Cerknica and Ljubljana for the Ljubljanica, and Bohinj and Kamnik for the Sava. It averages each catchment, then the two catchments together. The history since 2014 is imported once. After that, every run refreshes the last week and the forecast for the next 3 days. The **Ground** view shows the forecast in its status lines.
+**Rain.** `scripts/rain.py` gets daily rain from [Open-Meteo](https://open-meteo.com/) (CC BY 4.0) at five points: Vrhnika, Cerknica and Ljubljana for the Ljubljanica, and Bohinj and Kamnik for the Sava. It averages each catchment, then the two catchments together. The history since 2014 is imported once. After that, every run refreshes the last week and the forecast for the next 3 days. With a groundwater panel on top, the headline shows the forecast in its status lines.
 
 Hrastje's water table is about 10 m higher than Zalog's, because the ground rises towards the city, so its levels cannot be compared with Zalog's. It is shown for its live trend: when it rises, Zalog rises too.
 

@@ -15,7 +15,10 @@ const METRICS = {
 };
 const RIVER = ["level", "flow", "temp"];
 const WELLS = ["hrastje", "zalog"]; // panel order: live Hrastje first, Zalog (a fixed release) below
-const GROUND = "ground"; // the "Ground" choice: both groundwater panels
+// Old link values for the measurement: "ground" (both wells) and "all" (everything stacked).
+const GROUND = "ground";
+// Tab labels, short enough for five tabs on a phone.
+const TAB = { level: "Level", flow: "Flow", temp: "Temp", zalog: "Zalog", hrastje: "Hrastje" };
 const RANGES = [
   { id: "2d", label: "2 d", title: "Last 2 days", days: 2 },
   { id: "7d", label: "7 d", title: "Last week", days: 7 },
@@ -29,7 +32,7 @@ const state = {
   stations: [],
   byId: {},
   station: null,
-  metric: "level",
+  sel: ["level"], // the measurements shown, top panel first; any combination, in any order
   range: "7d",
   cache: {},
   series: {},
@@ -215,7 +218,7 @@ function buildPoints(c, metric) {
 
 // ---------------------------------------------------------------- chart
 
-// state.metric is one of METRICS, or ALL for the three measurements stacked on one time axis.
+// The panels stack on one time axis, in the order of state.sel.
 const ALL = "all";
 let DEFAULT_STATION_ID = null; // the Ljubljanica at Moste I, for the past-events cards
 let chart;
@@ -234,10 +237,13 @@ function available() {
   return has;
 }
 function panels() {
-  if (state.metric === ALL) return available();
-  if (state.metric === GROUND) return available().filter((id) => WELLS.includes(id));
-  return [state.metric];
+  const has = available();
+  const shown = state.sel.filter((id) => has.includes(id));
+  return shown.length ? shown : [has[0] ?? "level"];
 }
+// Every measurement, in tab order: the river, then the wells (Zalog first, as it is the one at home).
+const everything = () => Object.keys(TAB);
+const onlyWells = (ids) => ids.every((id) => WELLS.includes(id));
 // Phone layout: TradingView-style dense chart with the value scale on the right.
 const isCompact = () => matchMedia("(max-width: 640px)").matches;
 
@@ -255,6 +261,66 @@ function buildAllSeries() {
 }
 
 const panelTitle = (id) => METRICS[id].label;
+
+// TradingView-style pane buttons on each panel's title row: move up, move down, remove.
+let paneTops = [];
+function renderPaneTools() {
+  let box = $("pane-tools");
+  if (!box) {
+    box = el("div", "pane-tools");
+    box.id = "pane-tools";
+    $("chart").append(box);
+  }
+  box.replaceChildren();
+  const ids = panels();
+  if (ids.length < 2) return;
+  const icon = (d) => `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+  ids.forEach((id, i) => {
+    const row = el("div", "pane-tool-row");
+    row.style.top = `${paneTops[i]}px`;
+    const tool = (label, d, disabled, act) => {
+      const b = el("button", "pane-tool");
+      b.type = "button";
+      b.title = `${label}: ${METRICS[id].short}`;
+      b.setAttribute("aria-label", b.title);
+      b.innerHTML = icon(d);
+      b.disabled = disabled;
+      b.onclick = act;
+      row.append(b);
+    };
+    tool("Move up", "M8 12V4M4.5 7.5 8 4l3.5 3.5", i === 0, () => movePanel(id, -1));
+    tool("Move down", "M8 4v8M4.5 8.5 8 12l3.5-3.5", i === ids.length - 1, () => movePanel(id, 1));
+    tool("Remove", "M4.5 4.5l7 7M11.5 4.5l-7 7", false, () => togglePanel(id));
+    box.append(row);
+  });
+}
+
+// Swap a panel with its neighbour above (-1) or below (+1).
+function movePanel(id, dir) {
+  const ids = panels();
+  const i = ids.indexOf(id), j = i + dir;
+  if (j < 0 || j >= ids.length) return;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  setPanels(ids);
+}
+
+// Add a measurement as the bottom panel, or take it away (the last one stays).
+function togglePanel(id) {
+  const ids = panels();
+  if (ids.includes(id)) {
+    if (ids.length > 1) setPanels(ids.filter((x) => x !== id));
+  } else setPanels([...ids, id]);
+}
+
+function setPanels(ids) {
+  state.sel = ids;
+  writeHash();
+  buildAllSeries();
+  renderHero();
+  renderControls();
+  renderChart(true);
+  renderAbove();
+}
 
 function chartOption() {
   normalPanels = new Set();
@@ -274,6 +340,7 @@ function chartOption() {
   const unit = (H - L.top - L.bottom - L.gap * (n - 1)) / weight.reduce((a, b) => a + b, 0);
   const heights = weight.map((w) => w * unit);
   const panelTop = (i) => L.top + heights.slice(0, i).reduce((a, b) => a + b, 0) + i * L.gap;
+  paneTops = ids.map((_, i) => panelTop(i) - (compact ? 21 : 29));
   // Every panel spans the same time range, so they zoom and pan in step
   // (the groundwater well's record is shorter and its newest readings arrive later than the river's).
   const span = dataBounds();
@@ -607,11 +674,14 @@ let chartHeight = 0, chartCompact = null;
 function renderChart(keepWindow) {
   chartCompact = isCompact();
   const win = keepWindow ? currentWindow() : rangeWindow(state.range);
-  $("chart").classList.toggle("multi", panels().length > 1);
-  $("chart").classList.toggle("multi-4", panels().length > 3);
+  const n = panels().length;
+  $("chart").classList.toggle("multi-2", n === 2);
+  $("chart").classList.toggle("multi", n > 2);
+  $("chart").classList.toggle("multi-4", n > 3);
   chart.resize();
   chartHeight = $("chart").clientHeight;
   chart.setOption(chartOption(), { notMerge: true });
+  renderPaneTools();
   const b = dataBounds();
   if (b) {
     $("date").min = isoDay(b[0]);
@@ -785,7 +855,7 @@ function downloadCsv() {
   for (const r of rows) lines.push([rowTime(r), ...ids.map((id) => r.vals[id] ?? ""), r.daily ? "daily_mean" : "measured"].join(","));
   const a = el("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv" }));
-  a.download = `${st.river}-${st.place}-${state.metric}.csv`.replace(/\s+/g, "_");
+  a.download = `${st.river}-${st.place}-${ids.join("-")}.csv`.replace(/\s+/g, "_");
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -850,8 +920,8 @@ function renderDayReadout() {
   box.replaceChildren();
   box.hidden = !state.picked;
   if (!state.picked) return;
-  // One river measurement: all three of the station's values. Stacked or groundwater view: what is shown.
-  const ids = state.metric === ALL || state.metric === GROUND ? panels() : RIVER;
+  // One river measurement: all three of the station's values. Several panels or a well: what is shown.
+  const ids = panels().length > 1 || onlyWells(panels()) ? panels() : RIVER;
   const dayRow = (id) => state.cache[sourceId(id)]?.daily?.find((d) => d.date === state.picked);
   const value = (id, row) => (id === "hrastje" ? (row.level == null ? null : gwMetres(row.level)) : id === "zalog" ? row.level : row[id]);
   const vals = ids.map((id) => [id, dayRow(id)]).filter(([id, row]) => row && value(id, row) != null);
@@ -881,12 +951,9 @@ function noDataReason(c, iso) {
 
 // ---------------------------------------------------------------- times above a value
 
-// The measurement "times above" works on: the one shown, or the water level in the stacked view.
+// The measurement "times above" works on: the top panel.
 function aboveMetric() {
-  if (state.metric === GROUND) return panels().includes("zalog") ? "zalog" : panels()[0] ?? "hrastje";
-  if (state.metric !== ALL) return state.metric;
-  const has = panels();
-  return has.includes("level") ? "level" : has[0];
+  return panels()[0];
 }
 
 // Every stretch where the line is above x, over the whole record.
@@ -1012,17 +1079,27 @@ function renderControls() {
   const metrics = $("metrics");
   metrics.replaceChildren();
   const has = available();
-  const options = [...RIVER.map((id) => [id, METRICS[id].short, METRICS[id].label]), [GROUND, "Ground", "Groundwater at Zalog and Hrastje"], [ALL, "All", "Everything, stacked"]];
-  for (const [id, label, title] of options) {
-    const b = el("button", null, label);
+  // Toggles: any combination, each new one added as the bottom panel. The number is the panel's place.
+  const shown = panels();
+  metrics.setAttribute("role", "group");
+  for (const id of everything()) {
+    const on = shown.includes(id);
+    const b = el("button", null, TAB[id]);
     b.type = "button";
-    b.title = title;
-    b.setAttribute("role", "radio");
-    b.setAttribute("aria-checked", String(id === state.metric));
-    b.disabled = id === ALL ? has.length < 2 : id === GROUND ? !has.some((x) => WELLS.includes(x)) : !has.includes(id);
-    b.onclick = () => { state.metric = id; update(true); };
+    b.title = on ? (shown.length > 1 ? `${METRICS[id].label}: tap to remove` : METRICS[id].label) : `${METRICS[id].label}: tap to add`;
+    b.setAttribute("aria-pressed", String(on));
+    if (on && shown.length > 1) b.append(el("sup", "pane-no", String(shown.indexOf(id) + 1)));
+    b.disabled = !has.includes(id);
+    b.onclick = () => togglePanel(id);
     metrics.append(b);
   }
+  const all = has.every((id) => shown.includes(id));
+  const b = el("button", "all-tab", all ? "One" : "All");
+  b.type = "button";
+  b.title = all ? "Back to the top panel only" : "Everything, stacked";
+  b.disabled = has.length < 2;
+  b.onclick = () => setPanels(all ? [shown[0]] : [...shown, ...has.filter((id) => !shown.includes(id))]);
+  metrics.append(b);
   const ranges = $("ranges");
   ranges.replaceChildren();
   for (const r of RANGES) {
@@ -1062,8 +1139,8 @@ const distLabel = (st) => (st.dist_km == null ? "" : st.dist_km < 1 ? `${Math.ro
 function renderHero() {
   const st = state.byId[state.station];
   // In the stacked view the headline number is the first shown measurement (normally the level).
-  const hm = state.metric === ALL ? panels()[0] ?? "level" : state.metric;
-  if (hm === GROUND) return renderGroundHero();
+  const hm = panels()[0];
+  if (WELLS.includes(hm)) return renderGroundHero();
   const m = METRICS[hm];
   $("hero-label").textContent = `${m.label} · ${st.river}, ${st.place}`;
   $("hero-value").textContent = fmtVal(st[hm], hm);
@@ -1202,7 +1279,7 @@ function renderNearby() {
   for (const [w, about, value, prefix = ""] of wells) {
     const card = el("button", "station-card tracked");
     card.type = "button";
-    card.onclick = () => { state.metric = GROUND; update(true); window.scrollTo({ top: 0, behavior: "smooth" }); };
+    card.onclick = () => { state.sel = [...WELLS]; update(true); window.scrollTo({ top: 0, behavior: "smooth" }); };
     const meta = el("div", "meta", distLabel(w));
     meta.append(el("span", "extra", ` · ${about}`));
     card.append(el("div", "name", `Groundwater · ${w.name}`), meta);
@@ -1249,7 +1326,13 @@ function renderNearby() {
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   if (p.get("s") && state.byId[p.get("s")]?.tracked) state.station = p.get("s");
-  if (METRICS[p.get("m")] || p.get("m") === ALL || p.get("m") === GROUND) state.metric = p.get("m");
+  const m = p.get("m");
+  if (m === ALL) state.sel = everything();
+  else if (m === GROUND) state.sel = [...WELLS];
+  else if (m) {
+    const ids = [...new Set(m.split(",").filter((id) => METRICS[id]))];
+    if (ids.length) state.sel = ids;
+  }
   if (RANGES.some((r) => r.id === p.get("r"))) state.range = p.get("r");
   if (/^\d{4}-\d{2}-\d{2}$/.test(p.get("d") ?? "")) state.picked = p.get("d");
   for (const id of Object.keys(METRICS)) {
@@ -1259,7 +1342,7 @@ function readHash() {
 }
 function writeHash() {
   const above = Object.entries(state.above).map(([id, v]) => `&a${id[0]}=${v}`).join("");
-  history.replaceState(null, "", `#s=${state.station}&m=${state.metric}&r=${state.range}${state.picked ? `&d=${state.picked}` : ""}${above}`);
+  history.replaceState(null, "", `#s=${state.station}&m=${state.sel.join(",")}&r=${state.range}${state.picked ? `&d=${state.picked}` : ""}${above}`);
 }
 
 async function selectStation(id) {
@@ -1276,9 +1359,6 @@ async function update(keepWindow = false) {
     // The groundwater wells are a bonus: the river station must load, a well may fail.
     const well = (w) => w && stationData(w.id).catch(() => delete state.cache[w.id]);
     await Promise.all([stationData(state.station), well(state.gw), well(state.zalog)]);
-    const has = available();
-    const ok = state.metric === ALL ? has.length >= 2 : state.metric === GROUND ? has.some((x) => WELLS.includes(x)) : has.includes(state.metric);
-    if (!ok) state.metric = has[0] ?? "level";
     buildAllSeries();
     renderHero();
     renderControls();
@@ -1439,7 +1519,7 @@ async function shareChart() {
   g.fillRect(0, 0, canvas.width, canvas.height);
   const st = state.byId[state.station];
   const what = panels().map((id) => METRICS[id].short).join(" · ");
-  const where = WELLS.includes(state.metric) || state.metric === GROUND ? "Zalog area" : `${st?.river ?? ""}, ${st?.place ?? ""}`;
+  const where = onlyWells(panels()) ? "Zalog area" : `${st?.river ?? ""}, ${st?.place ?? ""}`;
   const [s, e] = state.window;
   g.textBaseline = "top";
   // Write a line, shrinking the font until it fits the width.
@@ -1496,7 +1576,7 @@ function renderEvents(events) {
     card.append(vals);
     card.onclick = async () => {
       state.station = DEFAULT_STATION_ID ?? state.station;
-      state.metric = ALL;
+      state.sel = everything();
       state.range = "30d"; // wide enough to see the rise and the fall
       state.picked = ev.peak;
       await update();
