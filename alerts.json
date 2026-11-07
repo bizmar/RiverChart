@@ -1,0 +1,18 @@
+{
+ "active": {
+  "high": false,
+  "rise": false,
+  "gw_rise": false,
+  "flood": false,
+  "stale": false,
+  "zalog_near": false,
+  "rain": false
+ },
+ "level": "normal",
+ "checked": "2026-11-07T17:05Z",
+ "ids": {
+  "widget": "WG12VJBP",
+  "screen": "SWO5U6YJ"
+ },
+ "archive_year": 2024
+}
