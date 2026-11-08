@@ -12,13 +12,15 @@ const METRICS = {
   // and ARSO's well at Hrastje (hourly, live).
   zalog: { label: "Groundwater at Zalog", short: "Zalog", unit: "m a.s.l.", digits: 2, color: "--c-zalog" },
   hrastje: { label: "Groundwater at Hrastje", short: "Hrastje", unit: "m a.s.l.", digits: 2, color: "--c-ground" },
+  // Daily rain over the Ljubljanica and Sava catchments (Open-Meteo), with the forecast for the next days.
+  rain: { label: "Rain over the catchments", short: "Rain", unit: "mm", digits: 1, color: "--c-rain" },
 };
 const RIVER = ["level", "flow", "temp"];
 const WELLS = ["hrastje", "zalog"]; // panel order: live Hrastje first, Zalog (a fixed release) below
 // Old link values for the measurement: "ground" (both wells) and "all" (everything stacked).
 const GROUND = "ground";
 // Tab labels, short enough for five tabs on a phone.
-const TAB = { level: "Level", flow: "Flow", temp: "Temp", zalog: "Zalog", hrastje: "Hrastje" };
+const TAB = { level: "Level", flow: "Flow", temp: "Temp", zalog: "Zalog", hrastje: "Hrastje", rain: "Rain" };
 const RANGES = [
   { id: "2d", label: "2 d", title: "Last 2 days", days: 2 },
   { id: "7d", label: "7 d", title: "Last week", days: 7 },
@@ -172,7 +174,20 @@ const sourceId = (metric) => ({ hrastje: state.gw?.id, zalog: state.zalog?.id })
 // ARSO's well readings are cm relative to the well top; shown as metres above sea level.
 const gwMetres = (cm) => Math.round((state.gw.datum + cm / 100) * 100) / 100;
 
+// Rain as daily bars: [time, mm, daily, forecast].
+function rainPoints() {
+  const today = isoDay(Date.now());
+  const pts = (state.rainDaily ?? []).map((r) => [r.t, r.mm, 1, 0]);
+  for (const f of state.rain?.forecast ?? []) {
+    if (f.date < today) continue;
+    const [y, m, d] = f.date.split("-").map(Number);
+    pts.push([Date.UTC(y, m - 1, d, 11), f.mm, 1, 1]);
+  }
+  return pts.sort((a, b) => a[0] - b[0]);
+}
+
 function seriesFor(id) {
+  if (id === "rain") return rainPoints();
   if (!WELLS.includes(id)) return buildPoints(state.cache[state.station], id);
   const c = state.cache[sourceId(id)];
   if (!c?.meta) return [];
@@ -230,6 +245,7 @@ function available() {
   const c = state.cache[state.station];
   const live = c ? [...c.live.values()].flat() : [];
   const has = RIVER.filter((k) => st?.[k] != null || c?.daily?.some((d) => d[k] != null) || live.some((r) => r[k] != null));
+  if (state.rainDaily?.length) has.push("rain");
   for (const w of WELLS) {
     const g = state.cache[sourceId(w)];
     if (g?.meta && (g.daily.some((d) => d.level != null) || [...g.live.values()].flat().some((r) => r.level != null))) has.push(w);
@@ -389,8 +405,8 @@ function chartOption() {
     yAxis: ids.map((id, i) => ({
       type: "value",
       gridIndex: i,
-      scale: id !== "flow",
-      min: id === "flow" ? 0 : mustShow(id).length ? (v) => Math.min(v.min, ...mustShow(id)) : undefined,
+      scale: id !== "flow" && id !== "rain",
+      min: id === "flow" || id === "rain" ? 0 : mustShow(id).length ? (v) => Math.min(v.min, ...mustShow(id)) : undefined,
       // A little headroom over the reference line, so its label stays inside the panel.
       max: mustShow(id).length ? (v) => Math.max(v.max, ...mustShow(id).map((x) => (x === mark ? x + 0.3 : x))) : undefined,
       position: compact ? "right" : "left",
@@ -420,7 +436,7 @@ function chartOption() {
           return `<div style="display:flex;align-items:center;gap:8px;margin-top:4px">` +
             `<span style="display:inline-block;width:14px;${key};border-radius:1px"></span>` +
             `<b style="font-size:16px">${est ? "≈ " : ""}${fmtVal(p.value[1], id)} ${METRICS[id].unit}</b>` +
-            `<span style="color:${ink2}">${METRICS[id].short}${est ? ` estimated (±${fmtVal(state.zalog.estimate.rmse, id)})` : ""}</span></div>` +
+            `<span style="color:${ink2}">${METRICS[id].short}${est ? ` estimated (±${fmtVal(state.zalog.estimate.rmse, id)})` : ""}${id === "rain" && p.value[3] ? " forecast" : ""}</span></div>` +
             (nr ? `<div style="margin:0 0 0 22px;font-size:12px;color:${ink2}">normal for the date: ${fmtVal(nr[0], id)}–${fmtVal(nr[1], id)}</div>` : "");
         }).join("");
       },
@@ -445,7 +461,20 @@ function chartOption() {
         brushSelect: false,
       },
     ],
-    series: ids.map((id, i) => ({
+    series: ids.map((id, i) => (id === "rain" ? {
+      type: "bar",
+      name: METRICS.rain.label,
+      xAxisIndex: i,
+      yAxisIndex: i,
+      data: state.series.rain,
+      barMaxWidth: 14,
+      barMinWidth: 1,
+      // The forecast days are paler.
+      itemStyle: { color: (p) => (p.value[3] ? hexAlpha(color(id), 0.4) : color(id)), borderRadius: [2, 2, 0, 0] },
+      emphasis: { disabled: true },
+      markLine: panelLines(id, compact, null),
+      markArea: pickedArea(),
+    } : {
       type: "line",
       name: METRICS[id].label,
       xAxisIndex: i,
@@ -476,7 +505,7 @@ const NORMAL_MIN_YEARS = 5;
 const normalCache = new Map();
 function normals(id) {
   const src = sourceId(id), c = state.cache[src];
-  if (!c?.daily) return null;
+  if (!c?.daily || id === "rain") return null;
   const key = `${src}:${id}:${c.daily.length}`;
   if (normalCache.has(key)) return normalCache.get(key);
   const field = WELLS.includes(id) ? "level" : id;
@@ -921,7 +950,8 @@ function renderDayReadout() {
   box.hidden = !state.picked;
   if (!state.picked) return;
   // One river measurement: all three of the station's values. Several panels or a well: what is shown.
-  const ids = panels().length > 1 || onlyWells(panels()) ? panels() : RIVER;
+  const ids = (panels().length > 1 || onlyWells(panels()) ? panels() : RIVER).filter((id) => id !== "rain");
+  if (!ids.length) ids.push(...RIVER);
   const dayRow = (id) => state.cache[sourceId(id)]?.daily?.find((d) => d.date === state.picked);
   const value = (id, row) => (id === "hrastje" ? (row.level == null ? null : gwMetres(row.level)) : id === "zalog" ? row.level : row[id]);
   const vals = ids.map((id) => [id, dayRow(id)]).filter(([id, row]) => row && value(id, row) != null);
@@ -1139,7 +1169,7 @@ const distLabel = (st) => (st.dist_km == null ? "" : st.dist_km < 1 ? `${Math.ro
 function renderHero() {
   const st = state.byId[state.station];
   // In the stacked view the headline number is the first shown measurement (normally the level).
-  const hm = panels()[0];
+  const hm = panels().find((id) => id !== "rain") ?? "level";
   if (WELLS.includes(hm)) return renderGroundHero();
   const m = METRICS[hm];
   $("hero-label").textContent = `${m.label} · ${st.river}, ${st.place}`;
@@ -1358,7 +1388,7 @@ async function update(keepWindow = false) {
   try {
     // The groundwater wells are a bonus: the river station must load, a well may fail.
     const well = (w) => w && stationData(w.id).catch(() => delete state.cache[w.id]);
-    await Promise.all([stationData(state.station), well(state.gw), well(state.zalog)]);
+    await Promise.all([stationData(state.station), well(state.gw), well(state.zalog), loadRain()]);
     buildAllSeries();
     renderHero();
     renderControls();
@@ -1370,6 +1400,19 @@ async function update(keepWindow = false) {
     showError(`Could not load data for this station (${err.message}).`);
   } finally {
     $("chart").classList.remove("loading");
+  }
+}
+
+// The catchment rain history, once (a few thousand rows). Rain is an extra: without it there is no Rain tab.
+async function loadRain() {
+  if (state.rainDaily || !state.rain) return;
+  try {
+    state.rainDaily = parseCsv(await getText("rain/daily.csv")).map((r) => {
+      const [y, m, d] = r.date.split("-").map(Number);
+      return { t: Date.UTC(y, m - 1, d, 11), mm: num(r.mm) };
+    }).filter((r) => r.mm != null);
+  } catch {
+    state.rainDaily = [];
   }
 }
 
