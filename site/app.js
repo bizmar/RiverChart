@@ -212,8 +212,18 @@ function estimatePoints() {
 }
 
 // One line: measured readings where they are loaded, daily means (ARSO's archive or our own) for every other day.
+// A single reading far from both neighbours, which agree with each other, is a glitch (e.g. ARSO sending 0 cm once).
+const SPIKE = { level: 15, flow: 0.5, temp: 3 }; // cm, share of the flow, °C
+function isSpike(prev, v, next, metric) {
+  const lim = metric === "flow" ? SPIKE.flow * Math.max(Math.abs(prev), Math.abs(next), 1) : SPIKE[metric] ?? Infinity;
+  return Math.abs(v - prev) > lim && Math.abs(v - next) > lim && Math.abs(prev - next) < lim / 2;
+}
+function dropSpikes(rows, metric) {
+  return rows.filter((r, i) => i === 0 || i === rows.length - 1 || !isSpike(rows[i - 1][metric], r[metric], rows[i + 1][metric], metric));
+}
+
 function buildPoints(c, metric) {
-  const live = [...c.live.keys()].sort().flatMap((m) => c.live.get(m)).filter((r) => r[metric] != null);
+  const live = dropSpikes([...c.live.keys()].sort().flatMap((m) => c.live.get(m)).filter((r) => r[metric] != null), metric);
   const liveDays = new Set(live.map((r) => isoDay(r.t)));
   const merged = [
     ...c.daily.filter((d) => d[metric] != null && !liveDays.has(d.date)).map((d) => [d.t, d[metric], 1]),
