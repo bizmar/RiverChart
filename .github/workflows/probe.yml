@@ -1,0 +1,20 @@
+name: Probe (temporary)
+on:
+  push:
+    branches: [probe-hrastje]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          mkdir -p probe-out
+          for f in G85040_t_30 G85040_t_1 G85040; do
+            curl -sS --retry 3 --max-time 120 "https://web.archive.org/cdx/search/cdx?url=www.arso.gov.si/vode/podatki/podzem_amp/${f}*&output=json&fl=timestamp,original,statuscode,length" -o "probe-out/${f}.json" || echo fail > "probe-out/${f}.err"
+          done
+          curl -sS --retry 3 --max-time 120 "https://web.archive.org/cdx/search/cdx?url=www.arso.gov.si/vode/podatki/podzem_amp/*&output=json&fl=original&collapse=urlkey&limit=500" -o probe-out/all.json || true
+          ls -la probe-out
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add probe-out && git commit -m "probe results" && git push
