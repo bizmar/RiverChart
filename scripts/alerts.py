@@ -126,7 +126,8 @@ def snapshot(store: Path, now: datetime) -> dict:
         "lj_cm": lj.get("level"),
         "lj_flow": lj.get("flow"),
         "lj_stage1": stage1,
-        "lj_time": parse_time(lj["time"]) if lj.get("time") else None,
+        # The last reading with a level: ARSO can keep sending fresh times with empty values (Nov 2026).
+        "lj_time": river[-1][0] if river else None,
         "lj_change": change_over(river, RISE_HOURS),
         "sava_cm": sv.get("level"),
         "gw_m": gw.get("level"),
@@ -220,7 +221,7 @@ def messages(snap: dict, before: dict, on: dict) -> list[dict]:
             "but most times nothing followed.", "heads-up")
     if turned_on("stale"):
         add("stale", "No new river data",
-            f"ARSO has sent no Ljubljanica readings for over {STALE_HOURS} h, so RiverChart cannot see the river.")
+            f"ARSO has sent no Ljubljanica water level for over {STALE_HOURS} h, so RiverChart cannot see the river.")
     if turned_off("stale"):
         add("stale", "River data is back", f"ARSO readings are arriving again. Ljubljanica at Moste I: {cm} cm.")
     return out

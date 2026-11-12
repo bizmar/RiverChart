@@ -1514,9 +1514,12 @@ function renderDataStatus() {
   row("Site updated", when(gen) + (now - gen > 3 * HOUR ? " · later than the usual 30 minutes" : ""), now - gen > 3 * HOUR);
   const st = state.byId[state.station];
   if (st) {
-    const t = st.time ? Date.parse(st.time) : null;
+    // The last reading with a value: ARSO can keep sending fresh times with empty values.
+    const lastReal = [...liveRows(state.cache[state.station])].reverse().find((r) => r.level != null || r.flow != null);
+    const t = lastReal?.t ?? null;
     const late = !t || now - t > 3 * HOUR;
-    row(`${st.river}, ${st.place}`, t ? when(t) + (late ? " · ARSO is late" : "") : "no current reading", late);
+    const blank = late && st.time && st.level == null && st.flow == null ? " · ARSO is sending empty readings" : late ? " · ARSO is late" : "";
+    row(`${st.river}, ${st.place}`, t ? when(t) + blank : "no current reading", late);
   }
   if (state.gw) {
     const t = state.gw.time ? Date.parse(state.gw.time) : null;

@@ -237,6 +237,17 @@ class AlertTests(unittest.TestCase):
         self.run_at(level=120, archive_to="2025-12-31")
         self.assertEqual(self.gw.sent(), [])
 
+    def test_blank_readings_count_as_stale(self):
+        # ARSO keeps the timestamp fresh but sends no values: the live file has no level for 7 h.
+        self.run_at(level=120)
+        write_store(self.root, level=120, age_h=7)
+        st = json.loads((self.root / "stations.json").read_text())
+        st["stations"][0].update({"time": NOW.strftime("%Y-%m-%dT%H:%MZ"), "level": None, "flow": None})
+        (self.root / "stations.json").write_text(json.dumps(st))
+        self.gw.calls.clear()
+        alerts.run(self.root, alerts.Notify(WEBHOOK, lambda *a: None), None, lambda *a: None, now=NOW)
+        self.assertEqual(self.gw.sent(), ["No new river data"])
+
     def test_bad_webhook_address(self):
         with self.assertRaises(ValueError):
             alerts.Notify("https://push.getnotifyapp.com/notify/ABC12345", print)
