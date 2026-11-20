@@ -23,6 +23,8 @@ Two reminders come once each, as plain notifications:
     - the Cloudflare timer's GitHub token expires in 14 days, and again at 3 days (the timer passes its expiry
       date in as TIMER_TOKEN_EXPIRES; it is kept in alerts.json for the runs in between);
     - ARSO's validated archive has a new year (for example 2025), so the daily record is complete again.
+And one problem notice, with an all-clear: the live website is over SITE_STALE_HOURS behind, because
+GitHub Pages keeps failing to publish (single failures fix themselves and send nothing).
 
 Without NOTIFY_URL the script does nothing. It never fails the data update.
 """
@@ -68,6 +70,9 @@ ZALOG_MAX_AGE_DAYS = 2
 STALE_HOURS = 6
 # Days before the timer's token expires to remind (once each).
 TOKEN_REMIND_DAYS = (14, 3)
+# The website itself: GitHub Pages sometimes fails to publish. One failed run fixes itself on the next one,
+# so it only alerts once the live site is this many hours behind (about 5 failed publishes in a row).
+SITE_STALE_HOURS = 3
 
 FLOOD_WORDS = re.compile(r"prvi|drug|tretj|visokovod|poplav", re.I)
 COLOURS = {"normal": "#2A78D6", "heads-up": "#FAB219", "warning": "#EC835A", "urgent": "#D03B3B"}
@@ -263,12 +268,22 @@ def archive_year(store: Path) -> int | None:
     return int(to[:4]) if to else None
 
 
-def reminders(store: Path, state: dict, now: datetime, token_expires: str | None) -> list[dict]:
+def reminders(store: Path, state: dict, now: datetime, token_expires: str | None,
+              site_generated: datetime | None = None) -> list[dict]:
     """One-off reminders. Updates `state` with what they are based on; sending is the caller's job."""
     out = []
     add = lambda key, title, text: out.append(  # noqa: E731
         {"rule": key, "title": title, "text": f"{text}\n{SITE}", "groupType": "riverchart", "timeSensitive": False,
          "iconUrl": icon("normal")})
+    if site_generated:
+        behind = (now - site_generated).total_seconds() / 3600
+        if behind > SITE_STALE_HOURS and not state.get("site_stale"):
+            add("site:stale", "Website not updating",
+                f"The RiverChart site has not been published for {behind:.0f} h: GitHub Pages keeps failing. "
+                "The data is still collected and alerts still work. Usually GitHub fixes it by itself; "
+                "check githubstatus.com, or the failed runs under Actions.")
+        elif behind <= SITE_STALE_HOURS and state.get("site_stale"):
+            add("site:ok", "Website updating again", "The RiverChart site is publishing normally again.")
     if token_expires and re.match(r"\d{4}-\d{2}-\d{2}", token_expires):
         state["timer_token_expires"] = token_expires[:10]
     expires = state.get("timer_token_expires")
@@ -298,6 +313,8 @@ def remembered(state: dict, rule: str) -> None:
         state["token_reminded"] = key
     elif kind == "archive":
         state["archive_year"] = int(key)
+    elif kind == "site":
+        state["site_stale"] = key == "stale"
 
 
 # --------------------------------------------------------------------------- Notify!
@@ -357,7 +374,7 @@ class Notify:
 
 
 def run(store: Path, notify: Notify | None, beacon_url: str | None, log, now: datetime | None = None,
-        token_expires: str | None = None) -> dict:
+        token_expires: str | None = None, site_generated: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     state_path = store / "alerts.json"
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
@@ -366,7 +383,7 @@ def run(store: Path, notify: Notify | None, beacon_url: str | None, log, now: da
     on = evaluate(snap, before)
     lvl = level(on)
     msgs = messages(snap, before, on)
-    notes = reminders(store, state, now, token_expires)
+    notes = reminders(store, state, now, token_expires, site_generated)
     log(f"alerts: level {lvl}; on: {sorted(k for k, v in on.items() if v) or 'none'}; {len(msgs) + len(notes)} to send")
 
     if notify:
@@ -411,6 +428,16 @@ def run(store: Path, notify: Notify | None, beacon_url: str | None, log, now: da
     return state
 
 
+def live_site_generated(log) -> datetime | None:
+    """When the published website was last built (stations.json), or None if it cannot be read."""
+    try:
+        with urlopen(Request(f"{SITE}data/stations.json", headers={"User-Agent": "RiverChart/1.0"}), timeout=30) as r:
+            return datetime.fromisoformat(json.load(r)["generated"].replace("Z", "+00:00"))
+    except Exception as e:  # noqa: BLE001 - an unreadable site is not a reason to alert
+        log(f"  live site check failed: {e}")
+        return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--store", type=Path, default=Path("store"))
@@ -424,7 +451,8 @@ def main() -> int:
             notify.send({"title": "RiverChart test", "iconUrl": icon("normal"),
                          "text": f"Alerts are set up. You will hear from RiverChart when the river or groundwater needs attention.\n{SITE}"})
         run(args.store, notify, os.environ.get("NOTIFY_BEACON_URL", "").strip() or None, log,
-            token_expires=os.environ.get("TIMER_TOKEN_EXPIRES", "").strip() or None)
+            token_expires=os.environ.get("TIMER_TOKEN_EXPIRES", "").strip() or None,
+            site_generated=live_site_generated(log) if notify else None)
     except Exception as e:  # noqa: BLE001 - alerts must never break the data update
         log(f"alerts failed: {type(e).__name__}: {e}")
     return 0

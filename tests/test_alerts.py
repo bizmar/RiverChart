@@ -85,13 +85,13 @@ class AlertTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.addCleanup(self.tmp.cleanup)
 
-    def run_at(self, now=NOW, token_expires=None, archive_to=None, **store):
+    def run_at(self, now=NOW, token_expires=None, archive_to=None, site_generated=None, **store):
         write_store(self.root, now=now, **store)
         if archive_to:
             (self.root / "5078" / "meta.json").write_text(json.dumps({"archive_to": archive_to}))
         self.gw.calls.clear()
         return alerts.run(self.root, alerts.Notify(WEBHOOK, lambda *a: None), None, lambda *a: None, now=now,
-                          token_expires=token_expires)
+                          token_expires=token_expires, site_generated=site_generated)
 
     def test_quiet_day_only_refreshes_widgets(self):
         state = self.run_at(level=120)
@@ -224,6 +224,20 @@ class AlertTests(unittest.TestCase):
         self.run_at(level=120)
         self.assertEqual(self.gw.sent(), ["Renew the timer token"])
         self.run_at(level=120)
+        self.assertEqual(self.gw.sent(), [])
+
+    def test_website_not_updating(self):
+        self.run_at(level=120, site_generated=NOW - timedelta(hours=2))  # a missed publish or two: quiet
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=120, site_generated=NOW - timedelta(hours=4))
+        self.assertEqual(self.gw.sent(), ["Website not updating"])
+        self.run_at(level=120, site_generated=NOW - timedelta(hours=5))
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=120)  # site could not be read: no change
+        self.assertEqual(self.gw.sent(), [])
+        self.run_at(level=120, site_generated=NOW - timedelta(minutes=40))
+        self.assertEqual(self.gw.sent(), ["Website updating again"])
+        self.run_at(level=120, site_generated=NOW - timedelta(minutes=10))
         self.assertEqual(self.gw.sent(), [])
 
     def test_new_archive_year(self):

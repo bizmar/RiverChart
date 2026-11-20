@@ -49,7 +49,7 @@ jobs:
     timeout-minutes: 60
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url || steps.deploy_retry.outputs.page_url }}
     env:
       GH_TOKEN: ${{ github.token }}
       REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
@@ -143,8 +143,22 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
+      # GitHub Pages fails to publish now and then (its own errors, about once a day). The data is already
+      # saved, so this never fails the run: one retry, then the next run publishes again. If the live site
+      # falls over 3 hours behind, the alerts step sends a "Website not updating" notification.
       - id: deploy
+        continue-on-error: true
         uses: actions/deploy-pages@v5
+      - name: Wait before retrying the publish
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 60
+      - id: deploy_retry
+        if: steps.deploy.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+      - name: Report publish failure
+        if: steps.deploy.outcome == 'failure' && steps.deploy_retry.outcome == 'failure'
+        run: echo "::warning::GitHub Pages did not publish this time (data is saved; the next run tries again)."
 
       - name: Report fetch failure
         if: steps.fetch.outcome == 'failure'
