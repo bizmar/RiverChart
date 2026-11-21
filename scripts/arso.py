@@ -8,6 +8,8 @@ Three sources are used:
   30 days (the same data behind the static graph on the ARSO station pages).
 * ``hidarhiv/pov_arhiv_tab.php`` - the validated daily archive, one year per
   request, going back decades.
+* ``hidarhiv/pod_arhiv_tab.php`` - the validated daily groundwater archive (CSV export,
+  any range of years; Hrastje goes back to 1973).
 * ``podzem_amp/G<id>_t_<days>.html`` - hourly readings of an automatic groundwater
   well (1, 7 or 30 days), in the same table layout as the river stations.
 
@@ -30,6 +32,7 @@ XML_URL = "https://www.arso.gov.si/xml/vode/hidro_podatki_zadnji.xml"
 TABLE_URL = "https://www.arso.gov.si/vode/podatki/amp/H{id}_t_{days}.html"
 GROUNDWATER_TABLE_URL = "https://www.arso.gov.si/vode/podatki/podzem_amp/{id}_t_{days}.html"
 ARCHIVE_URL = "https://vode.arso.gov.si/hidarhiv/pov_arhiv_tab.php"
+GROUNDWATER_ARCHIVE_URL = "https://vode.arso.gov.si/hidarhiv/pod_arhiv_tab.php"
 # The Internet Archive's saved copies of ARSO's station tables fill gaps that ARSO's own archive does not cover yet.
 WAYBACK_CDX = "https://web.archive.org/cdx/search/cdx"
 WAYBACK_RAW = "https://web.archive.org/web/{ts}id_/{url}"  # id_ = the page as saved, without the archive's toolbar
@@ -306,6 +309,29 @@ def fetch_archive_year(river: str, station_id: str, year: int, debug_log=None) -
     if debug_log and not rows:
         # Shows whether ARSO has nothing for that year or sent something the parser does not understand.
         debug_log(f"    archive {year}: no rows; ARSO sent {len(text)} chars: {text[:400]!r}")
+    return rows
+
+
+def fetch_groundwater_archive(aquifer: str, well_number: str, first_year: int, last_year: int,
+                              debug_log=None) -> list[tuple[date, dict]]:
+    """Daily means of a groundwater well from ARSO's archive, e.g. ("Ljubljansko polje", "85040", 1950, 2026).
+
+    "level" here is in metres above sea level ("Nivo v absolutnih kotah"), not cm like the live tables.
+    Years ARSO has not validated yet come back as dates without values, so they are simply missing.
+    """
+    params = {
+        "p_vodotok": aquifer,
+        "p_postaja": well_number,
+        "p_od_leto": first_year,
+        "p_do_leto": last_year,
+        "b_oddo_CSV": "Izvoz dnevnih vrednosti v CSV",
+    }
+    text = decode(fetch(GROUNDWATER_ARCHIVE_URL, params, timeout=120))
+    rows = parse_archive(text)
+    if not rows and re.search(r"za\w*asno\s+nedos", text):
+        raise ArchiveUnavailable("ARSO's archive site is temporarily unavailable")
+    if debug_log and not rows:
+        debug_log(f"    groundwater archive: no rows; ARSO sent {len(text)} chars: {text[:400]!r}")
     return rows
 
 

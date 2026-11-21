@@ -196,6 +196,10 @@ function seriesFor(id) {
   return id === "zalog" ? pts : pts.map((p) => (p[1] == null ? p : [p[0], gwMetres(p[1]), ...p.slice(2)]));
 }
 
+// What the newest Zalog estimate rests on: the Hrastje well counts while its last reading is at most a week old.
+const estimateSource = (e) =>
+  e.hrastje?.last && dayBounds(e.last.date)[0] - dayBounds(e.hrastje.last)[0] <= 7 * 24 * HOUR ? "Hrastje and the rivers" : "the rivers";
+
 // The Zalog estimate as chart points. It starts at the last measured day, so the dashed line joins the solid one,
 // and breaks wherever the river data it is made from has a gap (as the measured lines do).
 function estimatePoints() {
@@ -1282,11 +1286,11 @@ function renderGroundHero() {
       `Highest since ${z.first.slice(0, 4)}: ${fmtVal(z.highest.value, "zalog")} m on ${shortDayFmt.format(dayBounds(z.highest.date)[0])}` +
       (over > 0 ? `, ${fmtVal(over, "zalog")} m above that.` : ".")));
   }
-  // Zalog now: estimated from the rivers, since the well's own data has ended.
+  // Zalog now: estimated from the rivers (and the Hrastje well when it has recent readings), since the well's own data has ended.
   const est = z?.estimate;
   if (est && mark) {
     const gap = mark.value - est.last.value;
-    status.append(el("span", "thresholds", `Zalog now (estimated from the rivers): ≈ ${fmtVal(est.last.value, "zalog")} m ±${fmtVal(est.rmse, "zalog")}, ` +
+    status.append(el("span", "thresholds", `Zalog now (estimated from ${estimateSource(est)}): ≈ ${fmtVal(est.last.value, "zalog")} m ±${fmtVal(est.rmse, "zalog")}, ` +
       (gap > 0 ? `${fmtVal(gap, "zalog")} m below the reference.` : `at or above the reference.`)));
   }
   // Rain forecast over the river catchments: the earliest sign of high water.
@@ -1531,7 +1535,7 @@ function renderDataStatus() {
     const e = z.estimate;
     const late = !!e && now - dayBounds(e.last.date)[0] > 2 * 24 * HOUR;
     row(`Groundwater, ${z.name}`, `measured to ${day(z.last.date)}` +
-      (e ? `; estimated from the rivers to ${day(e.last.date)} (±${fmtVal(e.rmse, "zalog")} m)` : ""), late);
+      (e ? `; estimated from ${estimateSource(e)} to ${day(e.last.date)} (±${fmtVal(e.rmse, "zalog")} m)` : ""), late);
   }
   const r = cat.rain;
   if (r) {

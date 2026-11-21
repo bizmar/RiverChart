@@ -68,5 +68,41 @@ class EstimateTests(unittest.TestCase):
         self.assertIsNone(estimate.estimate({}, lj, lj, span[-1]))
 
 
+
+class HrastjeTests(unittest.TestCase):
+    def setUp(self):
+        span = days(8 * 365)
+        self.span = span
+        self.lj = {d: 50 + 40 * math.sin(i / 58) for i, d in enumerate(span)}
+        self.sava = {d: 200 + 150 * math.cos(i / 41) for i, d in enumerate(span)}
+        # Groundwater with its own slow swing the rivers do not explain; Zalog follows it 10 m lower.
+        self.h = {d: 274 + 0.5 * math.sin(i / 300) + 0.002 * self.lj[d] for i, d in enumerate(span)}
+        self.well = {d: self.h[d] - 10 for d in span[200:-60]}
+
+    def test_hrastje_makes_the_estimate_closer(self):
+        rivers = estimate.estimate(self.well, self.lj, self.sava, today=self.span[-1])
+        both = estimate.estimate(self.well, self.lj, self.sava, today=self.span[-1], hrastje=self.h)
+        self.assertLess(both["hrastje"]["rmse"], rivers["rmse"] / 3)
+        self.assertEqual(both["rmse"], both["hrastje"]["rmse"])
+        self.assertEqual(both["hrastje"]["days"], 60)
+        truth = self.h[self.span[-1]] - 10
+        self.assertLess(abs(both["days"][-1][1] - truth), 0.02)
+
+    def test_after_hrastje_ends_the_correction_fades(self):
+        h = {d: v for d, v in self.h.items() if d <= self.span[-31]}
+        r = estimate.estimate(self.well, self.lj, self.sava, today=self.span[-1], hrastje=h)
+        rivers = dict(estimate.estimate(self.well, self.lj, self.sava, today=self.span[-1])["days"])
+        est = dict(r["days"])
+        gap = lambda d: abs(est[d] - rivers[d])  # noqa: E731
+        self.assertEqual(r["hrastje"]["last"], self.span[-31])
+        self.assertGreater(gap(self.span[-30]), gap(self.span[-1]) * 10)  # no jump, then back to the rivers
+        self.assertEqual(r["rmse"], r["rmse_rivers"])  # the newest day no longer leans on Hrastje
+
+    def test_short_hrastje_record_is_ignored(self):
+        h = {d: v for d, v in self.h.items() if d >= self.span[-400]}
+        r = estimate.estimate(self.well, self.lj, self.sava, today=self.span[-1], hrastje=h)
+        self.assertIsNone(r["hrastje"])
+
+
 if __name__ == "__main__":
     unittest.main()

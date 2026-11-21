@@ -87,6 +87,13 @@ class ParserTests(unittest.TestCase):
                                 (date(2023, 1, 2), {"level": 110, "temp": 7.0})])
 
 
+GROUNDWATER_ARCHIVE = """Datum;temp. vode (°C);nivo v absolut. kotah (m n.m.)\r
+02.10.1973;;276.63\r
+31.12.2025;13.5;273.49\r
+01.01.2026\r
+"""
+
+
 MAINTENANCE = """<html><head><title>Arhiv hidroloških podatkov je začasno nedosegljiv</title></head>
 <body><h1>Spletna stran Arhiv hidroloških podatkov</h1><p>Spletna stran z arhivom hidroloških podatkov je začasno nedostopna.</p></body></html>"""
 
@@ -116,6 +123,11 @@ class ArchiveDownTests(unittest.TestCase):
         with mock.patch.object(arso, "fetch", lambda *a, **k: MAINTENANCE.encode()):
             with self.assertRaises(arso.ArchiveUnavailable):
                 arso.fetch_archive_year("Sava", "3570", 2025)
+
+    def test_groundwater_archive_down(self):
+        with mock.patch.object(arso, "fetch", lambda *a, **k: MAINTENANCE.encode()):
+            with self.assertRaises(arso.ArchiveUnavailable):
+                arso.fetch_groundwater_archive("Ljubljansko polje", "85040", 1950, 2026)
 
     def test_backfill_stops_and_keeps_data_when_archive_is_down(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -230,6 +242,9 @@ class EndToEndTests(unittest.TestCase):
             return TABLE.encode()
         if url == arso.ARCHIVE_URL:
             return ARCHIVE.encode() if params["p_leto"] == 2023 else b"Datum;vodostaj (cm)\n"
+        if url == arso.GROUNDWATER_ARCHIVE_URL:
+            self.gw_archive_params = getattr(self, "gw_archive_params", []) + [params]
+            return GROUNDWATER_ARCHIVE.encode()
         raise AssertionError(url)
 
     def test_update(self):
@@ -267,7 +282,13 @@ class EndToEndTests(unittest.TestCase):
             with (root / "G85040" / "live" / "2026-10.csv").open() as f:
                 self.assertEqual([r["level"] for r in csv.DictReader(f)], ["-1449", "-1448"])
             with (root / "G85040" / "daily.csv").open() as f:
-                self.assertEqual(next(csv.DictReader(f))["level"], "-1448.5")
+                gw_daily = {r["date"]: r for r in csv.DictReader(f)}
+            self.assertEqual(gw_daily["2026-10-21"]["level"], "-1448.5")
+            # ARSO's archive, in m a.s.l., is stored like the live readings (cm relative to the well top); once.
+            self.assertEqual([(gw_daily[d]["level"], gw_daily[d]["temp"], gw_daily[d]["src"]) for d in ("1973-10-02", "2025-12-31")],
+                             [("-1077", "", "a"), ("-1391", "13.5", "a")])
+            self.assertEqual(len(self.gw_archive_params), 1)
+            self.assertEqual((self.gw_archive_params[0]["p_postaja"], self.gw_archive_params[0]["p_od_leto"]), ("85040", 1950))
 
             # Zalog well: imported once, levels kept to the centimetre.
             self.assertEqual(self.zip_downloads, 1)

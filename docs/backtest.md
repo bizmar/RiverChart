@@ -20,15 +20,15 @@ A rule *catches* an event when it is on at some point from 10 days before the ev
 | 240 cm | 220 cm | 6 | 0.5 | 2 of 3 | 1, 0 | 4 |
 | 260 cm | 240 cm | 0 | 0.0 | 0 of 3 | – | 0 |
 
-## Zalog estimate near the reference (estimated from the rivers, each year unseen by its fit)
+## Zalog estimate near the reference (from the Hrastje well and the rivers, each year unseen by its fit)
 
 | On at | Clears at | Alerts | Per year | Caught | Lead (days) | False |
 |---|---|---|---|---|---|---|
 | 0.3 m below | 0.5 m below | 3 | 0.3 | 3 of 3 | 0, 0, 1 | 0 |
-| 0.5 m below | 0.7 m below | 4 | 0.4 | 3 of 3 | 0, 0, 1 | 1 |
-| 0.7 m below **(now)** | 0.9 m below | 5 | 0.5 | 3 of 3 | 1, 0, 7 | 2 |
-| 0.9 m below | 1.1 m below | 7 | 0.6 | 3 of 3 | 1, 0, 7 | 4 |
-| 1.1 m below | 1.3 m below | 11 | 1.0 | 3 of 3 | 1, 1, 8 | 8 |
+| 0.5 m below | 0.7 m below | 4 | 0.4 | 3 of 3 | 0, 0, 7 | 1 |
+| 0.7 m below **(now)** | 0.9 m below | 7 | 0.6 | 3 of 3 | 1, 0, 7 | 4 |
+| 0.9 m below | 1.1 m below | 8 | 0.7 | 3 of 3 | 1, 0, 7 | 5 |
+| 1.1 m below | 1.3 m below | 14 | 1.3 | 3 of 3 | 1, 0, 7 | 11 |
 
 ## Heavy rain forecast (mm over today and the next 2 days, Ljubljanica and Sava catchments)
 

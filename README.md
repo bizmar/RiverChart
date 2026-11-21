@@ -7,8 +7,8 @@ ARSO's station pages only show a static 30-day picture. This dashboard has:
 - the current water level, flow and water temperature, with the change over the last 24 hours and ARSO's own status (normal / high / flood stage)
 - an **interactive chart**: zoom with the scroll wheel or a pinch, drag to pan, or jump to 2 days … 10 years … the whole record
 - **groundwater** (the **Zalog** and **Hrastje** tabs): around Zalog, cellars flood from rising groundwater rather than from the river itself. Two charts:
-  - **Zalog**: VOKA SNAGA's well P-1gl in Zalog, daily from 2015 to June 2026, with a reference line at its level on 6 November 2023. After that, a dashed **estimate** from the rivers
-  - **Hrastje**: ARSO's nearest automatic well (~4 km west), live, with its record high and low
+  - **Zalog**: VOKA SNAGA's well P-1gl in Zalog, daily from 2015 to June 2026, with a reference line at its level on 6 November 2023. After that, a dashed **estimate** from the Hrastje well and the rivers
+  - **Hrastje**: ARSO's nearest automatic well (~4 km west), daily since 1973 and live, with its record high and low and the normal range for the time of year
 - **any combination, in any order**: the tabs (Level, Flow, Temp, Zalog, Hrastje, Rain) are toggles, so you can compare any pair or stack them all (**All**). Each panel has TradingView-style buttons to move it up or down or remove it, and the small number on a tab is its place. The panels share one time axis, so zooming, panning and the hover readout move together. The top panel sets the headline and "times above". The link keeps the order (`#m=level,zalog`)
 - **rain** (the **Rain** tab): daily rain over the Ljubljanica and Sava catchments since 2014 as bars, with the next 3 days' forecast in a paler colour, so you can see what the rivers are answering to
 - **decades of history** from ARSO's validated daily archive, which flows straight on into measured readings (every 10 minutes for the last day, hourly before that) recorded since this project started
@@ -36,7 +36,7 @@ Alerts, a Live Activity and widgets on an iPhone, through the free [Notify!](htt
 Each alert is sent once. A rule clears only once the value is well back down (the river under 180 cm, the Zalog estimate more than 0.90 m below the reference), so a level hovering at the threshold does not keep pinging. The warning then sends an "All clear".
 
 **Why these levels.** `scripts/backtest.py` replays the rules on the daily record for 2015–2026 ([report](docs/backtest.md)). In that time Zalog groundwater came near the reference level three times: December 2017, August 2023 and November 2023.
-- **The Zalog estimate rule** would have warned for all three: 1 day, the same day and 7 days ahead. It had 2 false alarms in 11 years.
+- **The Zalog estimate rule** would have warned for all three: 1 day, the same day and 7 days ahead. It had 4 false alarms in 11 years (a 0.5 m margin would have had 1, but the margin stays wide for the days the estimate has to go on the rivers alone).
 - **The Ljubljanica above 200 cm** was also true every time, but it happens about 4 times a year, mostly with no high groundwater. So it is a heads-up, not a warning.
 - **Warning time:** neither river rule gives much. High groundwater at Zalog follows the rivers within about a day.
 - **A heavy rain forecast** (70 mm or more over 3 days) came 2–10 days before all three events. It also happens about twice a year with nothing after it, so it is a heads-up.
@@ -64,13 +64,13 @@ ARSO also runs about 140 automatic groundwater wells ([map and tables](https://w
 
 **Zalog (P-1gl)** is a piezometer of JP VOKA SNAGA, the Ljubljana water company, in Zalog. Its daily levels for 2015 to June 2026 come from the open dataset [Groundwater-Level Monitoring Data from the Ljubljansko Barje and Ljubljansko Polje Piezometer Networks](https://zenodo.org/records/21789430) (Bračič Železnik, Čenčur Curk, Torkar; CC BY 4.0), imported once by `scripts/voka.py`. It is not updated live. The reference line is this well's own level on a chosen day, 6 November 2023 (266.38 m; `REFERENCE_DATE` in `scripts/update.py`). The highest level since 2015 was 266.96 m on 6 August 2023.
 
-**The Zalog estimate.** Since the well's data ends in June 2026, `scripts/estimate.py` estimates it from the rivers. The Zalog well follows a weighted mix of the Ljubljanica's flow at Moste I and the Sava's flow at Šentjakob, each averaged over a few days to a few months. That mix is fitted to the well's 2015–2026 record (least squares) on every run. On three years held back from the fit, the estimate is typically within about ±0.2 m. It tends to run low at the sharpest peaks (about 0.5 m low on 6 August 2023). It is shown only on days with real readings of both rivers. The chart draws it dashed, with a band of its typical error. If newer well data is ever imported, the fit uses it automatically.
+**The Zalog estimate.** Since the well's data ends in June 2026, `scripts/estimate.py` estimates it. The Zalog well follows the Hrastje well on the same aquifer, plus a weighted mix of the Ljubljanica's flow at Moste I and the Sava's flow at Šentjakob, each averaged over a few days to a few months. That mix is fitted to the well's 2015–2026 record (least squares) on every run. On three years held back from the fit, the estimate is typically within about ±0.14 m, and each of the three high-water peaks within 0.2 m. Hrastje's readings often arrive a day late: until they do, a fit on the rivers alone carries on from the last Hrastje day (±0.22 m; it runs up to 0.5 m low at the sharpest peaks). The status line says which it is. It is shown only on days with real readings of both rivers. The chart draws it dashed, with a band of its typical error. If newer well data is ever imported, the fit uses it automatically.
 
 **Rain.** `scripts/rain.py` gets daily rain from [Open-Meteo](https://open-meteo.com/) (CC BY 4.0) at five points: Vrhnika, Cerknica and Ljubljana for the Ljubljanica, and Bohinj and Kamnik for the Sava. It averages each catchment, then the two catchments together. The history since 2014 is imported once. After that, every run refreshes the last week and the forecast for the next 3 days. With a groundwater panel on top, the headline shows the forecast in its status lines.
 
-Hrastje's water table is about 10 m higher than Zalog's, because the ground rises towards the city, so its levels cannot be compared with Zalog's. It is shown for its live trend: when it rises, Zalog rises too.
+Hrastje's water table is about 10 m higher than Zalog's, because the ground rises towards the city, so its levels cannot be compared with Zalog's. It is shown for its live trend (when it rises, Zalog rises too) and it feeds the Zalog estimate.
 
-ARSO gives the level ("Nivo") in cm relative to the top of the well. The dashboard turns it into metres above sea level with the well's height from ARSO's [station sheet](https://meteo.arso.gov.si/uploads/probase/www/hidro/watercycle/text/sl/observation_sites/piezometers_wells/85040.pdf) (287.40 m), so it can be compared with any other height, for example a cellar floor. The record high (276.63 m, October 1973) and low (271.61 m, February 1989) come from the same sheet. History starts when this project began recording the well. ARSO's groundwater archive (`hidarhiv/pod_arhiv_tab.php`) could add older years once its archive site is back up. The "Stations nearby" section on the dashboard lists everything else ARSO publishes, with distances worked out from ARSO's coordinates.
+ARSO gives the level ("Nivo") in cm relative to the top of the well. The dashboard turns it into metres above sea level with the well's height from ARSO's [station sheet](https://meteo.arso.gov.si/uploads/probase/www/hidro/watercycle/text/sl/observation_sites/piezometers_wells/85040.pdf) (287.40 m), so it can be compared with any other height, for example a cellar floor. The record high (276.63 m, October 1973) and low (271.61 m, February 1989) come from the same sheet. ARSO's groundwater archive (`hidarhiv/pod_arhiv_tab.php`) gives its validated daily means from 1973 to the end of last year; they are imported once and the last 3 years re-checked daily. The months between the archive's end and live recording (January–September 2026) stay empty until ARSO validates 2026. The "Stations nearby" section on the dashboard lists everything else ARSO publishes, with distances worked out from ARSO's coordinates.
 
 ## How it works
 
@@ -93,7 +93,7 @@ Cloudflare Worker (every 30 min) ──► GitHub Actions: "Update data and publ
 | `scripts/update.py` | Merges new readings into plain CSV files on the `data` branch (rewritten as one commit each run, so the repository stays small). Also lists the past high-water events. |
 | `scripts/arso.py` | Downloads and parses the ARSO sources. |
 | `scripts/voka.py` | Reads VOKA SNAGA's Zalog well from its Zenodo spreadsheet. |
-| `scripts/estimate.py` | Estimates the Zalog well from the rivers after its data ends. |
+| `scripts/estimate.py` | Estimates the Zalog well from the Hrastje well and the rivers after its data ends. |
 | `scripts/rain.py` | Rain over the two catchments from Open-Meteo. |
 | `scripts/alerts.py` | Phone alerts, Live Activity and widgets (see above). |
 | `scripts/backtest.py` | Replays the alert rules on 2015–2026 ([report](docs/backtest.md)). |
@@ -120,7 +120,7 @@ stations.json               all ARSO stations + latest reading, nearest first
 <id>/live/YYYY-MM.csv       time (UTC),level,flow,temp  - measured readings, 10-60 min apart
 G85040/...                  the groundwater well, same layout (level = ARSO's "Nivo", hourly)
 VOKA-P-1gl/daily.csv        the Zalog well, daily, level in m above sea level (src v = VOKA SNAGA)
-VOKA-P-1gl/estimate.csv     the Zalog well estimated from the rivers, for days after its data ends
+VOKA-P-1gl/estimate.csv     the Zalog well estimated (Hrastje and the rivers), for days after its data ends
 rain/daily.csv              daily rain (mm), mean of the Ljubljanica and Sava catchments, since mid-2014
 rain/forecast.csv           the same for today and the next 3 days
 ```

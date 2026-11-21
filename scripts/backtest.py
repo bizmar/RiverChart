@@ -12,7 +12,8 @@ as scripts/alerts.py, and scored on:
     lead         days from the rule turning on to the event's first day (0 = same day)
     false        alerts with no event within LEAD_WINDOW days after them
 
-The Zalog estimate is scored honestly: each year is estimated by a fit that never saw that year.
+The Zalog estimate is scored honestly: each year is estimated by a fit that never saw that year
+(with ARSO's Hrastje well where it has readings, as the live estimate does).
 Daily means are smoother than the live readings alerts.py sees, so live alerts fire a little more often.
 """
 
@@ -29,6 +30,7 @@ import rain
 from alerts import RAIN_CLEAR_MM, RAIN_MM, RIVER, SAVA, WARN_CLEAR_CM, WARN_CM, ZALOG_NEAR_CLEAR_M, ZALOG_NEAR_M
 
 ZALOG = "VOKA-P-1gl"
+HRASTJE, GW_DATUM = "G85040", 287.40  # ARSO's well: level in cm relative to its top, 287.40 m a.s.l.
 REFERENCE_DATE = "2023-11-06"
 EVENT_BELOW_M = 0.40
 LEAD_WINDOW = 10
@@ -92,17 +94,27 @@ def score(series, on_at, clear_at, events, period):
     return {"alerts": len(starts), "caught": caught, "leads": leads, "false": false}
 
 
-def honest_estimate(well, lj, sava) -> dict[str, float]:
-    """Each year's estimate from a fit on every other year (leave one year out)."""
+def honest_estimate(well, lj, sava, hrastje=None) -> dict[str, float]:
+    """Each year's estimate from a fit on every other year (leave one year out).
+
+    Like the live estimate: the fit with the Hrastje well on days it has a reading, the rivers-only fit otherwise.
+    """
     first = min(well)
     start = (date.fromisoformat(first) - timedelta(days=estimate.WARMUP_DAYS)).isoformat()
-    rows = estimate.feature_rows({"L": lj, "S": sava}, estimate.day_range(start, max(well)))
+    span = estimate.day_range(start, max(well))
+    rows = estimate.feature_rows({"L": lj, "S": sava}, span)
+    rows_h = estimate.feature_rows({"L": lj, "S": sava, "H": hrastje}, span, estimate.WELL_FEATURES) if hrastje else {}
     measured = [d for d in sorted(well) if d in rows and d in lj and d in sava]
+    with_h = [d for d in measured if d in rows_h and d in hrastje]
     out = {}
     for year in sorted({d[:4] for d in measured}):
         train = [d for d in measured if d[:4] != year]
         coef = estimate.fit([rows[d] for d in train], [well[d] for d in train])
         out.update({d: estimate.predict(coef, rows[d]) for d in measured if d[:4] == year})
+        train_h = [d for d in with_h if d[:4] != year]
+        if len(train_h) > 2 * 365:
+            coef_h = estimate.fit([rows_h[d] for d in train_h], [well[d] for d in train_h])
+            out.update({d: estimate.predict(coef_h, rows_h[d]) for d in with_h if d[:4] == year})
     return out
 
 
@@ -115,7 +127,9 @@ def main() -> int:
     lj_q, sava_q = load(s / RIVER / "daily.csv", "flow"), load(s / SAVA / "daily.csv", "flow")
     well = load(s / ZALOG / "daily.csv", "level")
     ref = well[REFERENCE_DATE]
-    est = honest_estimate(well, lj_q, sava_q)
+    hrastje = {d: GW_DATUM + v / 100 for d, v in load(s / HRASTJE / "daily.csv", "level").items()} \
+        if (s / HRASTJE / "daily.csv").exists() else None
+    est = honest_estimate(well, lj_q, sava_q, hrastje)
     covered = sorted(d for d in est)
     period = (covered[0], covered[-1])
     years = gap(*period) / 365.25
@@ -152,7 +166,7 @@ def main() -> int:
     for m in (0.3, 0.5, 0.7, 0.9, 1.1):
         c = m + (ZALOG_NEAR_CLEAR_M - ZALOG_NEAR_M)
         rows.append((ref - m, ref - c, (f"{m:.1f} m below", f"{c:.1f} m below")))
-    table("Zalog estimate near the reference (estimated from the rivers, each year unseen by its fit)", est, rows, "m",
+    table("Zalog estimate near the reference (from the Hrastje well and the rivers, each year unseen by its fit)", est, rows, "m",
           (ref - ZALOG_NEAR_M, ref - ZALOG_NEAR_CLEAR_M))
 
     # Rain: what a forecast would have shown each day, taken as the rain that then fell (a perfect forecast,

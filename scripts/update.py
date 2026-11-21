@@ -290,11 +290,35 @@ def groundwater_metres(level_cm: float) -> float:
     return round(GROUNDWATER["datum"] + level_cm / 100, 2)
 
 
-def update_groundwater(root: Path, log) -> dict:
+def groundwater_archive(store: StationStore, mode: str, log, debug: bool = False) -> None:
+    """Add the well's validated daily means from ARSO's groundwater archive (back to 1973).
+
+    mode: "missing" = only while the store has none yet, "recent" = the last 3 years again, "full" = all of it.
+    """
+    gw = GROUNDWATER
+    has_archive = any(r.get("src") == "a" for r in store.daily().values())
+    if mode == "missing" and has_archive:
+        return
+    this_year = datetime.now().year
+    first = this_year - 3 if mode == "recent" and has_archive else 1950
+    try:
+        rows = arso.fetch_groundwater_archive(gw["aquifer"], gw["id"].lstrip("G"), first, this_year,
+                                              log if debug else None)
+    except Exception as e:  # noqa: BLE001 - a bonus; try again on a later run
+        log(f"    archive: {e}; will try again on a later run")
+        return
+    # The archive gives metres above sea level; the store keeps ARSO's live unit, cm relative to the well top.
+    store.add_archive([(d, {**v, "level": (v["level"] - gw["datum"]) * 100} if "level" in v else v)
+                       for d, v in rows])
+    log(f"    archive {first}-{this_year}: {len(rows)} days" + (f", {rows[0][0]} .. {rows[-1][0]}" if rows else ""))
+
+
+def update_groundwater(root: Path, log, archive: str = "missing", debug: bool = False) -> dict:
     """Store the well's hourly readings and return its entry for stations.json. Never fails the run."""
     gw = GROUNDWATER
     log(f"{gw['id']} groundwater - {gw['name']}")
     store = StationStore(root, gw["id"])
+    groundwater_archive(store, archive, log, debug)
     # ARSO sends the well's readings in batches, often a day late, so the 7-day table is the normal run.
     last = store.last_reading()
     days = 7 if last and datetime.now(timezone.utc) - last < timedelta(days=5) else 30
@@ -361,7 +385,8 @@ def zalog_estimate(root: Path, store: StationStore, well: dict[str, float], log)
     today = datetime.now(timezone.utc).date().isoformat()
     try:
         flows = {k: daily_values(root, sid, "flow") for k, sid in ESTIMATE_FROM.items()}
-        result = estimate.estimate(well, flows["L"], flows["S"], today)
+        hrastje = {d: groundwater_metres(v) for d, v in daily_values(root, GROUNDWATER["id"], "level").items()}
+        result = estimate.estimate(well, flows["L"], flows["S"], today, hrastje)
     except Exception as e:  # noqa: BLE001 - an estimate is a nice-to-have; never fail the run
         log(f"    estimate failed: {e}")
         result = None
@@ -371,9 +396,13 @@ def zalog_estimate(root: Path, store: StationStore, well: dict[str, float], log)
         return None
     write_table(path, ["date", "level"], {d: {"date": d, "level": f"{v:.2f}"} for d, v in result["days"]})
     last = result["days"][-1]
-    log(f"    estimate: {len(result['days'])} days, now {last[1]:.2f} m (error about ±{result['rmse']:.2f} m)")
+    h = result["hrastje"]
+    log(f"    estimate: {len(result['days'])} days, now {last[1]:.2f} m (error about ±{result['rmse']:.2f} m)"
+        + (f"; {h['days']} days with Hrastje (±{h['rmse']:.2f} m), the last {h['last']}" if h else "; rivers only"))
     return {
-        "from": [ESTIMATE_FROM["L"], ESTIMATE_FROM["S"]],
+        "from": [ESTIMATE_FROM["L"], ESTIMATE_FROM["S"]] + ([GROUNDWATER["id"]] if h and h["days"] else []),
+        "hrastje": h,
+        "rmse_rivers": result["rmse_rivers"],
         "first": result["days"][0][0],
         "last": {"date": last[0], "value": last[1]},
         "rmse": result["rmse"],
@@ -476,7 +505,7 @@ def main() -> int:
         store.recompute_daily_means()
         store.save(st)
 
-    groundwater = update_groundwater(args.store, log)
+    groundwater = update_groundwater(args.store, log, args.archive, args.debug)
     zalog = zalog_well(args.store, log)
     rainfall = rain.update(args.store, log, datetime.now(ZoneInfo("Europe/Ljubljana")).date())
 

@@ -18,10 +18,19 @@ never saw it. "High" is the days within 1 m of the reference level (46 days); th
 None changes the picture: about 0.15 m on ordinary days, and still 0.3–0.7 m low at the sharpest peaks.
 The river flows have given what they can. The warning margin (0.70 m below the reference) already allows for this.
 
-What would help is a second groundwater record with history on the same aquifer:
+## Update, 21 Nov 2026: the Hrastje well
 
-- **ARSO's Hrastje well (G85040)** history from ARSO's groundwater archive (`hidarhiv/pod_arhiv_tab.php`). Still
-  "temporarily unavailable" on 8 Nov 2026. The Internet Archive has no copies of its tables (only 4 chart images).
-  Once the archive is back, Hrastje's daily levels 2015–2026 could be fitted against Zalog, and the live Hrastje
-  readings would then give a measured, not estimated, Zalog value.
-- **Newer P-1gl data from VOKA SNAGA** (the email to them).
+ARSO's groundwater archive came back, with Hrastje (G85040) daily from 1973 to 2025. Same scoring:
+
+| Inputs | Error, all days | Error, high days | Peak errors (m) |
+|---|---|---|---|
+| rivers (before) | 0.154 m | 0.323 m | −0.18, −0.47, +0.30 |
+| Hrastje alone (1, 3, 10-day) | 0.128 m | 0.414 m | +0.03, +0.74, +0.23 |
+| Hrastje 1 + rivers | 0.115 m | 0.359 m | −0.05, −0.20, +0.36 |
+| **Hrastje 1, 3, 10, 30-day + rivers (now)** | **0.107 m** | **0.302 m** | **+0.14, +0.16, +0.17** |
+| Hrastje 1, 3, 10, 30, 90-day + rivers | 0.105 m | 0.294 m | +0.12, +0.09, +0.16 |
+
+The estimate now uses the bold row on days with a Hrastje reading. The peaks are no longer missed by up to
+0.5 m: all three come out within 0.2 m, slightly high. The 90-day term adds little for one more input.
+
+Still open: **newer P-1gl data from VOKA SNAGA** (the email to them) would extend the fit past June 2026.

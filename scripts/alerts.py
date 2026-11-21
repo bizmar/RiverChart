@@ -56,9 +56,10 @@ WARN_CM, WARN_CLEAR_CM = 200, 180
 RISE_CM, RISE_CLEAR_CM, RISE_HOURS = 40, 15, 6
 # Groundwater at Hrastje, metres over three days.
 GW_RISE_M, GW_RISE_CLEAR_M, GW_RISE_DAYS = 0.30, 0.10, 3
-# Groundwater at Zalog, estimated from the rivers (scripts/estimate.py): metres below the reference level.
-# The warning: in the backtest it caught all 3 events (2017, Aug and Nov 2023), 0-7 days ahead, with 2 false
-# alarms in 11 years. The estimate runs about 0.5 m low at the sharpest peaks, so it starts well below the reference.
+# Groundwater at Zalog, estimated from the Hrastje well and the rivers (scripts/estimate.py): metres below the
+# reference level. The warning: in the backtest it caught all 3 events (2017, Aug and Nov 2023), 0-7 days ahead,
+# with 4 false alarms in 11 years. 0.5 m would give 1 false alarm, but the rivers-only estimate (used while
+# Hrastje's readings are late) runs up to 0.5 m low at the sharpest peaks, so the margin stays wide.
 ZALOG_NEAR_M, ZALOG_NEAR_CLEAR_M = 0.70, 0.90
 # Rain forecast over the Ljubljanica and Sava catchments (scripts/rain.py), mm over today and the next 2 days.
 # In the backtest a forecast like this came 2-10 days before all 3 events, but also about twice a year with
